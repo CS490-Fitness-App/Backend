@@ -16,7 +16,7 @@ from schemas.coach import CoachOut
 router = APIRouter(prefix="/coaches", tags=["coaches"])
 
 
-# UC 5.1 — Browse/search available coaches
+#Browse/search available coaches
 @router.get("/", response_model=list[CoachOut])
 def browse_coaches(
     name: Optional[str] = Query(None, description="Search by coach's first or last name"),
@@ -60,6 +60,7 @@ def browse_coaches(
     coaches = query.distinct().all()
     return coaches
 
+# Send coaching request from client to coach
 @router.post("/request")
 def send_request(
     client_id: int,
@@ -90,7 +91,7 @@ def send_request(
     client = db.query(User).join(Client).filter(User.user_id == Client.user_id).first()
     client_name = f"{client.first_name} {client.last_name}"
 
-    #notify the coach
+    #notify the coach by adding notification to Notifications table
     notification = Notification(
         user_id=coach_id,
         message=f"You have a new coaching request from client {client_name}."
@@ -124,9 +125,9 @@ def accept_request(
     coach = db.query(User).join(Coach).filter(User.user_id == Coach.user_id).first()
     coach_name = f"{coach.first_name} {coach.last_name}"
 
-    #notify the client
+    #notify the client by adding notification to Notifications table
     notification = Notification(
-        user_id=coach_id,
+        user_id=client_id,
         message=f"Your coaching request to {coach_name} has been accepted."
     )
     db.add(notification)
