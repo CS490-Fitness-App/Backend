@@ -6,7 +6,7 @@ from typing import Optional
 
 from core.database import get_db
 from dependencies.rbac import require_client
-from models.user import User, Coach, CoachStatus
+from models.user import User, Coach, CoachStatus, Client
 from models.coach import ClientCoach, CoachCertification, CoachAvailability, coach_specialities
 from models.log import Goal, GoalType
 from models.notification import Notification
@@ -87,7 +87,7 @@ def send_request(
     db.refresh(new_request)
 
     #get client's name for notification
-    client = db.query(User).filter(User.user_id == client_id).first()
+    client = db.query(User).join(Client).filter(User.user_id == Client.user_id).first()
     client_name = f"{client.first_name} {client.last_name}"
 
     #notify the coach
