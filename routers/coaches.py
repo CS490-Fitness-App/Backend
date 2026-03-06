@@ -1,4 +1,4 @@
-# Handles coach discovery and contract endpoints (UC 5.1–5.4): browsing coaches, sending/accepting/declining requests, and ending contracts.
+# Handles coach discovery and contract endpoints: browsing coaches, sending/accepting/declining requests, and ending contracts.
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -7,8 +7,9 @@ from typing import Optional
 from core.database import get_db
 from dependencies.rbac import require_client
 from models.user import User, Coach, CoachStatus
-from models.coach import CoachCertification, CoachAvailability, coach_specialities
+from models.coach import ClientCoach, CoachCertification, CoachAvailability, coach_specialities
 from models.log import Goal, GoalType
+from models.notification import Notification
 
 from schemas.coach import CoachOut
 
@@ -58,3 +59,44 @@ def browse_coaches(
     #use distinct to avoid duplicates and get all matching results and return
     coaches = query.distinct().all()
     return coaches
+
+@router.post("/request")
+def send_request(
+    client_id: int,
+    coach_id: int,
+    db: Session = Depends(get_db),
+):
+    #check whether request is valid and return error if necessary
+    query = db.query(Coach).filter(Coach.coach_id == coach_id, Coach.accepting_clients == True).first()
+    if not query:
+        return {"error": "Coach not found or not accepting clients."}
+    
+    #check if there's already a pending request or active contract and return error if it does
+    existing_relationship = db.query(ClientCoach).filter(
+        ClientCoach.client_id == client_id,
+        ClientCoach.coach_id == coach_id,
+        ClientCoach.status_name.in_(['Pending', 'Active', 'Terminated', 'Declined'])
+    ).first()
+    if existing_relationship:
+        return {"error": "A request or contract already exists between this client and coach."}
+    
+    #if valid add pending request to ClientCoach table and return success message
+    new_request = ClientCoach(client_id=client_id, coach_id=coach_id, status_name='Pending')
+    db.add(new_request)
+    db.commit()
+    db.refresh(new_request)
+
+    #get client's name for notification
+    client = db.query(User).filter(User.user_id == client_id).first()
+    client_name = f"{client.first_name} {client.last_name}"
+
+    #notify the coach
+    notification = Notification(
+        user_id=coach_id,
+        message=f"You have a new coaching request from client {client_name}."
+    )
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+
+    return {"message": "Request sent successfully."}

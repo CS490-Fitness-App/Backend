@@ -55,5 +55,6 @@ class ClientCoach(Base):
 
     client_id    = Column(Integer, ForeignKey('Clients.client_id', ondelete='CASCADE'), primary_key=True)
     coach_id     = Column(Integer, ForeignKey('Coaches.coach_id',  ondelete='CASCADE'), primary_key=True)
+    status_name  = Column(Enum('Pending', 'Active', 'Terminated', 'Declined'), nullable=False)
     created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated = Column(DateTime(timezone=True), nullable=False, default=_now)
