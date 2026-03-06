@@ -24,8 +24,7 @@ def browse_coaches(
     specialty: Optional[str] = Query(None),
     min_rate: Optional[float] = Query(None),
     max_rate: Optional[float] = Query(None),
-    db: Session = Depends(get_db),
-    current_user=Depends(require_client),
+    db: Session = Depends(get_db)
 ):
     #basic query to get active coaches who are accepting clients
     #with joins to get certs and specialities for display and filtering
