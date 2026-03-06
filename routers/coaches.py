@@ -135,3 +135,37 @@ def accept_request(
     db.refresh(notification)
 
     return {"message": "Request accepted successfully."}
+
+@router.post("/request/decline")
+def decline_request(
+    client_id: int,
+    coach_id: int,
+    db: Session = Depends(get_db),
+):
+    #check if pending request exists and return error if not
+    relationship = db.query(ClientCoach).filter(
+        ClientCoach.client_id == client_id,
+        ClientCoach.coach_id == coach_id,
+        ClientCoach.status_name == 'Pending'
+    ).first()
+    if not relationship:
+        return {"error": "No pending request found between this client and coach."}
+    
+    #update status to declined and return success message
+    relationship.status_name = 'Declined'
+    db.commit()
+
+    #get coach's name for notification
+    coach = db.query(User).join(Coach).filter(User.user_id == Coach.user_id).first()
+    coach_name = f"{coach.first_name} {coach.last_name}"
+
+    #notify the client by adding notification to Notifications table
+    notification = Notification(
+        user_id=client_id,
+        message=f"Your coaching request to {coach_name} has been declined."
+    )
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+
+    return {"message": "Request declined successfully."}
