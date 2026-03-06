@@ -21,6 +21,6 @@ class CoachOut(BaseModel):
     years_of_experience: Optional[int]
     accepting_clients:   bool
     avg_rating:          Optional[float]
-    specialties:         list[str]
-    certifications:      list[str]
-    availability:        list[str]
+    specialties:         Optional[list[str]]
+    certifications:      Optional[list[str]]
+    availability:        Optional[list[str]]
