@@ -24,8 +24,13 @@ def register_client(
     # check if Client already has a profile
     existing_client = db.query(User).filter(User.user_id == current_user.user_id).first()
     if existing_client and existing_client.client_profile:
-        raise HTTPException(status_code=400, detail="Client profile already exists for this user.")
-    
+        raise HTTPException(status_code=409, detail="Client profile already exists for this user.")
+
+    # validate every requested goal_type_id exists
+    for gid in data.goal_type_ids:
+        if not db.query(GoalType).filter(GoalType.goal_type_id == gid).first():
+            raise HTTPException(status_code=404, detail=f"Invalid goal_type_id: {gid}")
+
     # get info for Client table
     client = Client(
         user_id=current_user.user_id,
@@ -37,36 +42,14 @@ def register_client(
         weekly_streak=0    # default to 0 for new customers
     )
     db.add(client)
+
+    # create initial goals from the survey
+    for gid in data.goal_type_ids:
+        db.add(Goal(user_id=current_user.user_id, goal_type_id=gid))
+
     db.commit()
     db.refresh(client)
     return client
-
-
-# Set goals for the current client (initial or additional)
-@router.post("/goals", response_model=list[GoalOut])
-def set_goals(
-    goal_type_ids: list[int],
-    db: Session = Depends(get_db),
-    current_user=Depends(require_client)
-):
-    # validate every requested goal_type_id exists
-    for gid in goal_type_ids:
-        if not db.query(GoalType).filter(GoalType.goal_type_id == gid).first():
-            raise HTTPException(status_code=400, detail=f"Invalid goal_type_id: {gid}")
-
-    # add new goals for this user
-    goals = []
-    for gid in goal_type_ids:
-        goal = Goal(user_id=current_user.user_id, goal_type_id=gid)
-        db.add(goal)
-        goals.append(goal)
-
-    # commit all changes to the database at once
-    db.commit()
-    for g in goals:
-        db.refresh(g)
-    return goals
-
 
 # Retrieve current client's goals
 @router.get("/goals", response_model=list[GoalOut])
