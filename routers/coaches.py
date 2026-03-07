@@ -1,6 +1,6 @@
 # Handles coach discovery and contract endpoints: browsing coaches, sending/accepting/declining requests, and ending contracts.
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -73,8 +73,8 @@ def send_request(
     #check whether request is valid and return error if necessary
     query = db.query(Coach).filter(Coach.coach_id == coach_id, Coach.accepting_clients == True).first()
     if not query:
-        return {"error": "Coach not found or not accepting clients."}
-    
+        raise HTTPException(status_code=404, detail="Coach not found or not accepting clients.")
+
     #check if there's already a pending request or active contract and return error if it does
     existing_relationship = db.query(ClientCoach).filter(
         ClientCoach.client_id == client_id,
@@ -82,7 +82,7 @@ def send_request(
         ClientCoach.status_name.in_(['Pending', 'Active', 'Terminated', 'Declined'])
     ).first()
     if existing_relationship:
-        return {"error": "A request or contract already exists between this client and coach."}
+        raise HTTPException(status_code=409, detail="A request or contract already exists between this client and coach.")
     
     #if valid add pending request to ClientCoach table and return success message
     new_request = ClientCoach(client_id=client_id, coach_id=coach_id, status_name='Pending')
@@ -120,8 +120,8 @@ def accept_request(
         ClientCoach.status_name == 'Pending'
     ).first()
     if not relationship:
-        return {"error": "No pending request found between this client and coach."}
-    
+        raise HTTPException(status_code=404, detail="No pending request found between this client and coach.")
+
     #update status to active and return success message
     relationship.status_name = 'Active'
     db.commit()
@@ -156,8 +156,8 @@ def decline_request(
         ClientCoach.status_name == 'Pending'
     ).first()
     if not relationship:
-        return {"error": "No pending request found between this client and coach."}
-    
+        raise HTTPException(status_code=404, detail="No pending request found between this client and coach.")
+
     #update status to declined and return success message
     relationship.status_name = 'Declined'
     db.commit()
@@ -196,8 +196,8 @@ def end_contract(
             ClientCoach.status_name == 'Active'
         ).first()
         if not relationship:
-            return {"error": "No active contract found between this client and coach."}
-        
+            raise HTTPException(status_code=404, detail="No active contract found between this client and coach.")
+
         #update status to terminated
         relationship.status_name = 'Terminated'
         db.commit()
@@ -226,8 +226,8 @@ def end_contract(
             ClientCoach.status_name == 'Active'
         ).first()
         if not relationship:
-            return {"error": "No active contract found between this client and coach."}
-        
+            raise HTTPException(status_code=404, detail="No active contract found between this client and coach.")
+
         #update status to terminated
         relationship.status_name = 'Terminated'
         db.commit()
@@ -244,4 +244,4 @@ def end_contract(
         return {"message": "Contract terminated successfully."}
     
     else:
-        return {"error": "Invalid user role for Client-Coach relationship termination."}
+        raise HTTPException(status_code=403, detail="Invalid user role for Client-Coach relationship termination.")
