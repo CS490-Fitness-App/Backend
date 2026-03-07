@@ -65,7 +65,7 @@ class Coach(Base):
 
     coach_id            = Column(Integer, primary_key=True, autoincrement=True)
     user_id             = Column(Integer, ForeignKey('Users.user_id', ondelete='CASCADE'), nullable=False, unique=True)
-    gender              = Column(String(20))
+    gender              = Column(String(20), nullable=False)
     hourly_rate         = Column(Numeric(10, 2))
     accepting_clients   = Column(Boolean, nullable=False, default=True)
     bio                 = Column(Text)
@@ -74,6 +74,7 @@ class Coach(Base):
     is_nutritionist     = Column(Boolean, nullable=False, default=False)
     years_of_experience = Column(Integer)
     max_clients         = Column(Integer)
+    session_format      = Column(String(20), nullable=False, default='Virtual')
     created_at          = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated        = Column(DateTime(timezone=True), nullable=False, default=_now)
 
