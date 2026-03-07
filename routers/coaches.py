@@ -24,6 +24,7 @@ def browse_coaches(
     specialty: Optional[str] = Query(None),
     min_rate: Optional[float] = Query(None),
     max_rate: Optional[float] = Query(None),
+    session_format: Optional[str] = Query(None, description="Filter by session format: Virtual, In-Person, Both"),
     db: Session = Depends(get_db)
 ):
     #basic query to get active coaches who are accepting clients
@@ -53,6 +54,11 @@ def browse_coaches(
         query = query.filter(Coach.hourly_rate >= min_rate)
     if max_rate is not None:
         query = query.filter(Coach.hourly_rate <= max_rate)
+    if session_format:
+        if session_format == 'Virtual':
+            query = query.filter(Coach.session_formats.in_(['Virtual', 'Both']))
+        elif session_format == 'In-Person':
+            query = query.filter(Coach.session_formats.in_(['In-Person', 'Both']))
 
     #use distinct to avoid duplicates and get all matching results and return
     coaches = query.distinct().all()
