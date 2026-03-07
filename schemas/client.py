@@ -1,6 +1,6 @@
 # Pydantic schemas for client registration (initial survey) request body.
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import date
 from typing import Optional
 
