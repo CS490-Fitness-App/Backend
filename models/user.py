@@ -74,7 +74,7 @@ class Coach(Base):
     is_nutritionist     = Column(Boolean, nullable=False, default=False)
     years_of_experience = Column(Integer)
     max_clients         = Column(Integer)
-    session_format      = Column(String(20), nullable=False, default='Virtual')
+    session_format      = Column('session_formats', String(20), nullable=False, default='Virtual')
     created_at          = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated        = Column(DateTime(timezone=True), nullable=False, default=_now)
 

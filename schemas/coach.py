@@ -1,7 +1,7 @@
 # Pydantic schemas for coach profile data, certifications, availability slots, and client-coach relationships.
 # Used by the coaches router to validate inputs and format responses.
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from enum import Enum
 from datetime import time

@@ -7,8 +7,8 @@ from typing import Optional
 from core.database import get_db
 from dependencies.rbac import require_client
 from models.user import User, Coach, CoachStatus
-from models.coach import CoachCertification, CoachAvailability, coach_session_formats, coach_specialities
-from models.log import Goal, GoalType
+from models.coach import CoachCertification, CoachAvailability, coach_specialities
+from models.log import GoalType
 
 from schemas.coach import CoachOut, CoachRegisterIn
 
