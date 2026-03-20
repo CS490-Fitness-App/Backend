@@ -15,6 +15,55 @@ from schemas.coach import CoachOut, CoachRegisterIn
 router = APIRouter(prefix="/coaches", tags=["coaches"])
 
 
+# Helper to build CoachOut from a Coach ORM object
+def _build_coach_out(coach: Coach, db: Session) -> CoachOut:
+    from sqlalchemy import func
+    from models.review import Review
+    
+    # Get avg rating from reviews
+    avg_rating = db.query(func.avg(Review.rating)).filter(
+        Review.coach_id == coach.coach_id
+    ).scalar()
+    
+    # Get certifications
+    certs = db.query(CoachCertification).filter(
+        CoachCertification.coach_id == coach.coach_id
+    ).all()
+    cert_names = [c.certification_name for c in certs]
+    
+    # Get availability
+    avail = db.query(CoachAvailability).filter(
+        CoachAvailability.coach_id == coach.coach_id
+    ).all()
+    avail_strs = [f"{a.day_of_week.value if hasattr(a.day_of_week, 'value') else a.day_of_week} {a.start_time}-{a.end_time}" for a in avail]
+    
+    # Get specialties (goal type names)
+    specialties = db.query(GoalType.goal_type_name).join(
+        coach_specialities, GoalType.goal_type_id == coach_specialities.c.goal_type_id
+    ).filter(
+        coach_specialities.c.coach_id == coach.coach_id
+    ).all()
+    specialty_names = [s[0] for s in specialties]
+    
+    return CoachOut(
+        coach_id=coach.coach_id,
+        first_name=coach.user.first_name,
+        last_name=coach.user.last_name,
+        profile_picture=coach.user.profile_picture,
+        bio=coach.bio,
+        gender=coach.gender,
+        hourly_rate=float(coach.hourly_rate) if coach.hourly_rate else 0.0,
+        is_trainer=coach.is_trainer,
+        is_nutritionist=coach.is_nutritionist,
+        years_of_experience=coach.years_of_experience,
+        accepting_clients=coach.accepting_clients,
+        avg_rating=float(avg_rating) if avg_rating else None,
+        specialties=specialty_names if specialty_names else None,
+        certifications=cert_names if cert_names else None,
+        availability=avail_strs if avail_strs else None,
+    )
+
+
 # Endpoint for coach registration
 # Gets data for Coach table and other related tables to build out profile
 @router.post("/register", response_model=CoachOut)
@@ -75,7 +124,8 @@ def register_coach(
     # db.refresh reloads the coach object with any DB-generated values (timestamps etc.)
     db.commit()
     db.refresh(coach)
-    return coach
+    return _build_coach_out(coach, db)
+
 
 # UC 5.1 — Browse/search available coaches
 @router.get("/", response_model=list[CoachOut])
@@ -89,34 +139,39 @@ def browse_coaches(
     db: Session = Depends(get_db),
     current_user=Depends(require_client),
 ):
-    #basic query to get active coaches who are accepting clients
-    #with joins to get certs and specialities for display and filtering
+    # Base query: active coaches who are accepting clients
     query = (
         db.query(Coach)
         .join(User)
         .join(CoachStatus)
-        .join(CoachCertification, Coach.coach_id == CoachCertification.coach_id, isouter=True)
-        .join(coach_specialities, coach_specialities.c.coach_id == Coach.coach_id, isouter=True)
-        .join(GoalType, GoalType.goal_type_id == coach_specialities.c.goal_type_id, isouter=True)
-        .join(GoalType, isouter=True)
         .filter(Coach.accepting_clients == True)
         .filter(CoachStatus.status_name == 'Active')
     )
 
-    #filtering added based on input
+    # Filter by name
     if name:
-        query = query.filter((User.first_name.ilike(f"%{name}%")) | (User.last_name.ilike(f"%{name}%")))
+        query = query.filter(
+            (User.first_name.ilike(f"%{name}%")) | (User.last_name.ilike(f"%{name}%"))
+        )
     if trainer:
         query = query.filter(Coach.is_trainer == True)
     if nutritionist:
         query = query.filter(Coach.is_nutritionist == True)
-    if specialty:
-        query = query.filter(GoalType.goal_type_name == specialty)
     if min_rate is not None:
         query = query.filter(Coach.hourly_rate >= min_rate)
     if max_rate is not None:
         query = query.filter(Coach.hourly_rate <= max_rate)
+    
+    # Filter by specialty requires joining coach_specialities
+    if specialty:
+        query = (
+            query
+            .join(coach_specialities, coach_specialities.c.coach_id == Coach.coach_id)
+            .join(GoalType, GoalType.goal_type_id == coach_specialities.c.goal_type_id)
+            .filter(GoalType.goal_type_name == specialty)
+        )
 
-    #use distinct to avoid duplicates and get all matching results and return
     coaches = query.distinct().all()
-    return coaches
+    
+    # Build response with flattened fields
+    return [_build_coach_out(c, db) for c in coaches]
