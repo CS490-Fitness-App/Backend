@@ -66,7 +66,7 @@ class Coach(Base):
     coach_id            = Column(Integer, primary_key=True, autoincrement=True)
     user_id             = Column(Integer, ForeignKey('Users.user_id', ondelete='CASCADE'), nullable=False, unique=True)
     gender              = Column(String(20))
-    hourly_rate         = Column(Numeric(10, 2))
+    hourly_rate         = Column(Numeric(10, 2), nullable=False, default=0.00)
     accepting_clients   = Column(Boolean, nullable=False, default=True)
     bio                 = Column(Text)
     status_id           = Column(Integer, ForeignKey('Coach_Statuses.status_id'), nullable=False, default=1)
