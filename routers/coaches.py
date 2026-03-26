@@ -137,8 +137,8 @@ def browse_coaches(
     specialty: Optional[str] = Query(None),
     min_rate: Optional[float] = Query(None),
     max_rate: Optional[float] = Query(None),
-    db: Session = Depends(get_db),
-    current_user=Depends(require_client),
+    session_format: Optional[str] = Query(None, description="Filter by session format: Virtual, In-Person, Both"),
+    db: Session = Depends(get_db)
 ):
     # Base query: active coaches who are accepting clients
     query = (
@@ -162,6 +162,11 @@ def browse_coaches(
         query = query.filter(Coach.hourly_rate >= min_rate)
     if max_rate is not None:
         query = query.filter(Coach.hourly_rate <= max_rate)
+    if session_format:
+        if session_format == 'Virtual':
+            query = query.filter(Coach.session_formats.in_(['Virtual', 'Both']))
+        elif session_format == 'In-Person':
+            query = query.filter(Coach.session_formats.in_(['In-Person', 'Both']))
     
     # Filter by specialty requires joining coach_specialities
     if specialty:
