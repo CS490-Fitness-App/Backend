@@ -4,7 +4,7 @@
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, CHAR, Column, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String
 from sqlalchemy.orm import relationship
-from database import Base
+from core.database import Base
 
 
 def _now():
