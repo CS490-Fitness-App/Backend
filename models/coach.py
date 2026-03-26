@@ -4,20 +4,11 @@
 from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Table, Time, UniqueConstraint
 from sqlalchemy.orm import relationship
-from database import Base
+from core.database import Base
 
 
 def _now():
     return datetime.now(timezone.utc)
-
-
-# Junction table: coaches ↔ session formats (no extra columns)
-coach_session_formats = Table(
-    'Coach_Session_Formats',
-    Base.metadata,
-    Column('coach_id',          Integer, ForeignKey('Coaches.coach_id',                  ondelete='CASCADE'), primary_key=True),
-    Column('session_format_id', Integer, ForeignKey('Session_Formats.session_format_id', ondelete='CASCADE'), primary_key=True),
-)
 
 # Junction table: coaches ↔ goal types / specialities (no extra columns)
 coach_specialities = Table(
