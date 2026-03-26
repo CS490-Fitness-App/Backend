@@ -106,14 +106,6 @@ Example success response:
 	- Return `403` if user role is wrong.
 	- Return `401` if token/user is invalid.
 
-## Super Simple Frontend Flow
-
-1. User logs in with Auth0.
-2. Frontend gets Auth0 access token.
-3. Frontend calls `POST /auth/login` with Bearer token.
-4. Save returned user data in app state.
-5. On refresh/app load, call `GET /auth/me` to check session.
-6. On logout, call `POST /auth/logout`, clear local token, then Auth0 logout.
 
 ## Fetch Example (copy/paste)
 
