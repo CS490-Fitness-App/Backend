@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.auth0 import auth
 from core.database import get_db
+from dependencies.rbac import get_current_user, require_admin, require_client, require_coach
 from models.user import Admin, Client, Coach, User
 from schemas.auth import AuthRequestIn, AuthUserOut, LogoutOut
 
@@ -153,18 +154,10 @@ def login_or_sync_account(
 
 @router.get("/me", response_model=AuthUserOut)
 def get_current_account(
-	claims: dict = Depends(auth),
-	db: Session = Depends(get_db),
+	current_user: User = Depends(get_current_user),
 ):
-	# Frontend connection check
-	# 1) valid token 2) user exists in local DB 3) return user profile for app state.
-	auth0_sub = claims["sub"]
-	user = db.query(User).filter(User.auth0_sub == auth0_sub).first()
-	if not user:
-		raise HTTPException(
-			status_code=status.HTTP_404_NOT_FOUND,
-			detail="User not found in local database. Call /auth/signup or /auth/login first.",
-		)
+	# Frontend connection check. If token or user is invalid, RBAC dependency raises 401.
+	user = current_user
 
 	return AuthUserOut(
 		user_id=user.user_id,
@@ -180,3 +173,36 @@ def get_current_account(
 @router.post("/logout", response_model=LogoutOut)
 def logout_user():
     return LogoutOut(message="Logged out. Clear client token and call Auth0 logout in frontend.")
+
+
+@router.get("/rbac/client")
+def client_access_check(current_user: User = Depends(require_client)):
+	# Frontend can call this to verify a client token has client-only access.
+	return {
+		"ok": True,
+		"message": "Client access granted",
+		"role": current_user.role,
+		"user_id": current_user.user_id,
+	}
+
+
+@router.get("/rbac/coach")
+def coach_access_check(current_user: User = Depends(require_coach)):
+	# Frontend can call this to verify a coach token has coach-only access.
+	return {
+		"ok": True,
+		"message": "Coach access granted",
+		"role": current_user.role,
+		"user_id": current_user.user_id,
+	}
+
+
+@router.get("/rbac/admin")
+def admin_access_check(current_user: User = Depends(require_admin)):
+	# Frontend can call this to verify an admin token has admin-only access.
+	return {
+		"ok": True,
+		"message": "Admin access granted",
+		"role": current_user.role,
+		"user_id": current_user.user_id,
+	}

@@ -94,6 +94,18 @@ Example success response:
 	- Returns a simple message from backend.
 	- Frontend still needs to clear token and call Auth0 logout.
 
+### 5) RBAC quick checks (for frontend testing)
+
+- Method: `GET`
+- URLs:
+	- `/auth/rbac/client`
+	- `/auth/rbac/coach`
+	- `/auth/rbac/admin`
+- What they do:
+	- Return `200` if the logged-in user has the required role.
+	- Return `403` if user role is wrong.
+	- Return `401` if token/user is invalid.
+
 ## Super Simple Frontend Flow
 
 1. User logs in with Auth0.
