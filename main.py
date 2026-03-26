@@ -3,11 +3,18 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware 
+from fastapi.staticfiles import StaticFiles
+
+from routers.coaches import router as coaches_router
+from routers.exercises import router as exercises_router
 
 # only import routers that have an actual APIRouter defined — stubs are excluded until implemented
 # from routers import 
 
 app = FastAPI(title="Primal Fitness API")
+
+app.include_router(coaches_router)
+app.include_router(exercises_router)
 
 app.add_middleware(
     CORSMiddleware,

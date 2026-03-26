@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import aliased
 from typing import Optional
 
 from core.database import get_db
@@ -36,7 +37,7 @@ def browse_coaches(
         .join(CoachCertification, Coach.coach_id == CoachCertification.coach_id, isouter=True)
         .join(coach_specialities, coach_specialities.c.coach_id == Coach.coach_id, isouter=True)
         .join(GoalType, GoalType.goal_type_id == coach_specialities.c.goal_type_id, isouter=True)
-        .join(GoalType, isouter=True)
+        .join(aliased(GoalType), isouter=True) # This line was crashing earlier
         .filter(Coach.accepting_clients == True)
         .filter(CoachStatus.status_name == 'Active')
     )
