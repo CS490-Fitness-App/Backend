@@ -26,7 +26,7 @@ class Workout(Base):
     intended_duration_weeks = Column(Integer)
     image_url               = Column(Text)
     created_at              = Column(DateTime(timezone=True), nullable=False, default=_now)
-    last_updated            = Column(DateTime(timezone=True), nullable=False, default=_now)
+    last_updated            = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
 
     creator          = relationship('User', foreign_keys=[creator_id])
     assigned_user    = relationship('User', foreign_keys=[assigned_to])
