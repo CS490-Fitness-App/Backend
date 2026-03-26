@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from core.auth0 import auth
 from core.database import get_db
-from dependencies.rbac import get_current_user, require_admin, require_client, require_coach
 from models.user import Admin, Client, Coach, User
 from schemas.auth import AuthRequestIn, AuthUserOut, LogoutOut
 
@@ -154,10 +153,18 @@ def login_or_sync_account(
 
 @router.get("/me", response_model=AuthUserOut)
 def get_current_account(
-	current_user: User = Depends(get_current_user),
+	claims: dict = Depends(auth),
+	db: Session = Depends(get_db),
 ):
-	# Frontend connection check. If token or user is invalid, RBAC dependency raises 401.
-	user = current_user
+	# Frontend connection check
+	# 1) valid token 2) user exists in local DB 3) return user profile for app state.
+	auth0_sub = claims["sub"]
+	user = db.query(User).filter(User.auth0_sub == auth0_sub).first()
+	if not user:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="User not found in local database. Call /auth/signup or /auth/login first.",
+		)
 
 	return AuthUserOut(
 		user_id=user.user_id,
