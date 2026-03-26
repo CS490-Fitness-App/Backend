@@ -18,6 +18,41 @@ Use this header on every request:
 Authorization: Bearer YOUR_AUTH0_ACCESS_TOKEN
 ```
 
+## Auth0 Wiring (Frontend + Backend)
+
+Backend env vars must match your Auth0 setup:
+
+- `AUTH0_DOMAIN` (example: `dev-abc123.us.auth0.com`)
+- `AUTH0_API_AUDIENCE` (your Auth0 API Identifier)
+
+Frontend Auth0 config must use the same values:
+
+- `domain` = same as `AUTH0_DOMAIN`
+- `authorizationParams.audience` = same as `AUTH0_API_AUDIENCE`
+
+Simple frontend flow:
+
+1. User logs in with Auth0.
+2. Frontend gets access token (`getAccessTokenSilently`).
+3. Frontend sends token in `Authorization: Bearer ...`.
+4. Frontend calls backend endpoints (`/auth/login`, `/auth/me`, etc).
+
+Minimal example:
+
+```javascript
+const token = await getAccessTokenSilently({
+	authorizationParams: {
+		audience: "YOUR_AUTH0_API_AUDIENCE"
+	}
+});
+
+const res = await fetch("http://127.0.0.1:8000/auth/me", {
+	headers: {
+		Authorization: `Bearer ${token}`
+	}
+});
+```
+
 ## Endpoints You Need
 
 ### 1) Login (safe to call every time)
