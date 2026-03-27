@@ -2,7 +2,7 @@
 # Each file in this package defines SQLAlchemy ORM classes that mirror the existing MySQL schema.
 
 from .user         import CoachStatus, SessionFormat, User, Client, Coach, Admin
-from .coach        import coach_session_formats, coach_specialities, CoachCertification, CoachAvailability, ClientCoach
+from .coach        import coach_specialities, CoachCertification, CoachAvailability, ClientCoach
 from .exercise     import exercise_muscles, ExerciseCategory, MuscleGroup, ExperienceLevel, Unit, Exercise
 from .workout      import Workout, WorkoutPlan, WorkoutLog, SetResult, SavedWorkout, ScheduledWorkout
 from .log          import GoalType, Goal, MoodType, DailySurvey, WeightLog, AuditLog
