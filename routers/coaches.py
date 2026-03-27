@@ -1,4 +1,4 @@
-# Handles coach discovery and contract endpoints (UC 5.1–5.4): browsing coaches, sending/accepting/declining requests, and ending contracts.
+# Handles coach discovery and contract endpoints: browsing coaches, sending/accepting/declining requests, and ending contracts.
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
@@ -6,9 +6,10 @@ from typing import Optional
 
 from core.database import get_db
 from dependencies.rbac import require_client
-from models.user import User, Coach, CoachStatus
-from models.coach import CoachCertification, CoachAvailability, coach_specialities
-from models.log import GoalType
+from models.user import User, Coach, CoachStatus, Client
+from models.coach import ClientCoach, CoachCertification, CoachAvailability, coach_specialities
+from models.log import Goal, GoalType
+from models.notification import Notification
 
 from schemas.coach import CoachOut, CoachRegisterIn
 
@@ -136,8 +137,8 @@ def browse_coaches(
     specialty: Optional[str] = Query(None),
     min_rate: Optional[float] = Query(None),
     max_rate: Optional[float] = Query(None),
-    db: Session = Depends(get_db),
-    current_user=Depends(require_client),
+    session_format: Optional[str] = Query(None, description="Filter by session format: Virtual, In-Person, Both"),
+    db: Session = Depends(get_db)
 ):
     # Base query: active coaches who are accepting clients
     query = (
@@ -161,6 +162,11 @@ def browse_coaches(
         query = query.filter(Coach.hourly_rate >= min_rate)
     if max_rate is not None:
         query = query.filter(Coach.hourly_rate <= max_rate)
+    if session_format:
+        if session_format == 'Virtual':
+            query = query.filter(Coach.session_formats.in_(['Virtual', 'Both']))
+        elif session_format == 'In-Person':
+            query = query.filter(Coach.session_formats.in_(['In-Person', 'Both']))
     
     # Filter by specialty requires joining coach_specialities
     if specialty:
@@ -172,6 +178,190 @@ def browse_coaches(
         )
 
     coaches = query.distinct().all()
+    return coaches
+
+# Send coaching request from client to coach
+@router.post("/request")
+def send_request(
+    coach_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client)
+):
+    #get client_id from current_user
+    client_id = current_user.client.client_id
+
+    #check whether request is valid and return error if necessary
+    query = db.query(Coach).filter(Coach.coach_id == coach_id, Coach.accepting_clients == True).first()
+    if not query:
+        raise HTTPException(status_code=404, detail="Coach not found or not accepting clients.")
+
+    #check if there's already a pending request or active contract and return error if it does
+    existing_relationship = db.query(ClientCoach).filter(
+        ClientCoach.client_id == client_id,
+        ClientCoach.coach_id == coach_id,
+        ClientCoach.status_name.in_(['Pending', 'Active', 'Terminated', 'Declined'])
+    ).first()
+    if existing_relationship:
+        raise HTTPException(status_code=409, detail="A request or contract already exists between this client and coach.")
     
-    # Build response with flattened fields
-    return [_build_coach_out(c, db) for c in coaches]
+    #if valid add pending request to ClientCoach table and return success message
+    new_request = ClientCoach(client_id=client_id, coach_id=coach_id, status_name='Pending')
+    db.add(new_request)
+    db.commit()
+    db.refresh(new_request)
+
+    #get client's name for notification
+    client_name = f"{current_user.first_name} {current_user.last_name}"
+
+    #notify the coach by adding notification to Notifications table
+    notification = Notification(
+        user_id=coach_id,
+        message=f"You have a new coaching request from client {client_name}."
+    )
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+
+    return {"message": "Request sent successfully."}
+
+@router.post("/request/accept")
+def accept_request(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client)
+):
+    #get coach_id from current_user
+    coach_id = current_user.coach.coach_id
+
+    #check if pending request exists and return error if not
+    relationship = db.query(ClientCoach).filter(
+        ClientCoach.client_id == client_id,
+        ClientCoach.coach_id == coach_id,
+        ClientCoach.status_name == 'Pending'
+    ).first()
+    if not relationship:
+        raise HTTPException(status_code=404, detail="No pending request found between this client and coach.")
+
+    #update status to active and return success message
+    relationship.status_name = 'Active'
+    db.commit()
+
+    #get coach's name for notification
+    coach_name = f"{current_user.first_name} {current_user.last_name}"
+
+    #notify the client by adding notification to Notifications table
+    notification = Notification(
+        user_id=client_id,
+        message=f"Your coaching request to {coach_name} has been accepted."
+    )
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+
+    return {"message": "Request accepted successfully."}
+
+@router.post("/request/decline")
+def decline_request(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client)
+):
+    #get coach_id from current_user
+    coach_id = current_user.coach.coach_id
+
+    #check if pending request exists and return error if not
+    relationship = db.query(ClientCoach).filter(
+        ClientCoach.client_id == client_id,
+        ClientCoach.coach_id == coach_id,
+        ClientCoach.status_name == 'Pending'
+    ).first()
+    if not relationship:
+        raise HTTPException(status_code=404, detail="No pending request found between this client and coach.")
+
+    #update status to declined and return success message
+    relationship.status_name = 'Declined'
+    db.commit()
+
+    #get coach's name for notification
+    coach_name = f"{current_user.first_name} {current_user.last_name}"
+
+    #notify the client by adding notification to Notifications table
+    notification = Notification(
+        user_id=client_id,
+        message=f"Your coaching request to {coach_name} has been declined."
+    )
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+
+    return {"message": "Request declined successfully."}
+
+
+@router.post("/contract/end")
+def end_contract(
+    other_user_id: int = Query(..., description="ID of the other party in the contract (coach or client)"),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client)
+):
+    #check if current_user is a Client
+    if current_user.role == 'client':
+        #assign ids to appropriate vars
+        client_id = current_user.client.client_id
+        coach_id = other_user_id
+
+        #check if active contract exists and return error if not
+        relationship = db.query(ClientCoach).filter(
+            ClientCoach.client_id == client_id,
+            ClientCoach.coach_id == coach_id,
+            ClientCoach.status_name == 'Active'
+        ).first()
+        if not relationship:
+            raise HTTPException(status_code=404, detail="No active contract found between this client and coach.")
+
+        #update status to terminated
+        relationship.status_name = 'Terminated'
+        db.commit()
+
+        #notify the coach by adding notification to Notifications table
+        notification = Notification(
+            user_id=other_user_id,
+            message=f"{current_user.first_name} {current_user.last_name} terminated coaching contract."
+        )
+        db.add(notification)
+        db.commit()
+        db.refresh(notification)
+
+        return {"message": "Contract terminated successfully."}
+    
+    #if current_user is a Coach
+    elif current_user.role == 'coach':
+        #assign ids to appropriate vars
+        coach_id = current_user.coach.coach_id
+        client_id = other_user_id
+
+        #check if active contract exists and return error if not
+        relationship = db.query(ClientCoach).filter(
+            ClientCoach.client_id == client_id,
+            ClientCoach.coach_id == coach_id,
+            ClientCoach.status_name == 'Active'
+        ).first()
+        if not relationship:
+            raise HTTPException(status_code=404, detail="No active contract found between this client and coach.")
+
+        #update status to terminated
+        relationship.status_name = 'Terminated'
+        db.commit()
+
+        #notify the Client by adding notification to Notifications table
+        notification = Notification(
+            user_id=client_id,
+            message=f"{current_user.first_name} {current_user.last_name} terminated coaching contract."
+        )
+
+        db.add(notification)
+        db.commit()
+        db.refresh(notification)
+        return {"message": "Contract terminated successfully."}
+    
+    else:
+        raise HTTPException(status_code=403, detail="Invalid user role for Client-Coach relationship termination.")

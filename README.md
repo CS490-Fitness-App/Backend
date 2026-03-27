@@ -18,6 +18,41 @@ Use this header on every request:
 Authorization: Bearer YOUR_AUTH0_ACCESS_TOKEN
 ```
 
+## Auth0 Wiring (Frontend + Backend)
+
+Backend env vars must match your Auth0 setup:
+
+- `AUTH0_DOMAIN` (example: `dev-abc123.us.auth0.com`)
+- `AUTH0_API_AUDIENCE` (your Auth0 API Identifier)
+
+Frontend Auth0 config must use the same values:
+
+- `domain` = same as `AUTH0_DOMAIN`
+- `authorizationParams.audience` = same as `AUTH0_API_AUDIENCE`
+
+Simple frontend flow:
+
+1. User logs in with Auth0.
+2. Frontend gets access token (`getAccessTokenSilently`).
+3. Frontend sends token in `Authorization: Bearer ...`.
+4. Frontend calls backend endpoints (`/auth/login`, `/auth/me`, etc).
+
+Minimal example:
+
+```javascript
+const token = await getAccessTokenSilently({
+	authorizationParams: {
+		audience: "YOUR_AUTH0_API_AUDIENCE"
+	}
+});
+
+const res = await fetch("http://127.0.0.1:8000/auth/me", {
+	headers: {
+		Authorization: `Bearer ${token}`
+	}
+});
+```
+
 ## Endpoints You Need
 
 ### 1) Login (safe to call every time)
@@ -94,14 +129,18 @@ Example success response:
 	- Returns a simple message from backend.
 	- Frontend still needs to clear token and call Auth0 logout.
 
-## Super Simple Frontend Flow
+### 5) RBAC quick checks (for frontend testing)
 
-1. User logs in with Auth0.
-2. Frontend gets Auth0 access token.
-3. Frontend calls `POST /auth/login` with Bearer token.
-4. Save returned user data in app state.
-5. On refresh/app load, call `GET /auth/me` to check session.
-6. On logout, call `POST /auth/logout`, clear local token, then Auth0 logout.
+- Method: `GET`
+- URLs:
+	- `/auth/rbac/client`
+	- `/auth/rbac/coach`
+	- `/auth/rbac/admin`
+- What they do:
+	- Return `200` if the logged-in user has the required role.
+	- Return `403` if user role is wrong.
+	- Return `401` if token/user is invalid.
+
 
 ## Fetch Example (copy/paste)
 
