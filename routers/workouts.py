@@ -2,15 +2,18 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from typing import List
+from typing import List, Optional
 from datetime import date
 
 from core.database import get_db
 from dependencies.rbac import get_current_user
-from models.workout import Workout, WorkoutPlan, SavedWorkout, ScheduledWorkout
+from models.workout import Workout, WorkoutPlan, SavedWorkout, ScheduledWorkout, WorkoutLog, SetResult
+from models.coach import ClientCoach
+from models.user import Client
 from schemas.workout import (
     WorkoutIn, WorkoutOut, WorkoutDetailOut, WorkoutExerciseOut,
     ScheduledWorkoutIn, ScheduledWorkoutOut,
+    WorkoutLogIn, CalendarWorkoutOut,
 )
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
@@ -127,6 +130,40 @@ def list_saved_workouts(db: Session = Depends(get_db), current_user=Depends(get_
     return [_to_out(w) for w in workouts]
 
 
+# Get the current user's scheduled workouts for the calendar, optionally filtered by date range
+# NOTE: must be declared BEFORE /{workout_id} so FastAPI doesn't match "scheduled" as an integer ID
+@router.get("/scheduled", response_model=List[CalendarWorkoutOut])
+def list_scheduled_workouts(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    query = db.query(ScheduledWorkout).filter(ScheduledWorkout.user_id == current_user.user_id)
+    if start_date:
+        query = query.filter(ScheduledWorkout.scheduled_date >= start_date)
+    if end_date:
+        query = query.filter(ScheduledWorkout.scheduled_date <= end_date)
+    rows = query.order_by(ScheduledWorkout.scheduled_date).all()
+
+    result = []
+    for row in rows:
+        w = _get_or_404(row.workout_id, db)
+        out = _to_out(w)
+        result.append(CalendarWorkoutOut(
+            scheduled_date=row.scheduled_date,
+            status=row.status,
+            workout_id=w.workout_id,
+            name=w.name,
+            image_url=w.image_url,
+            experience_level=out.experience_level,
+            goal_type=out.goal_type,
+            workout_time_mins=w.workout_time_mins,
+            exercises=_get_exercises(w.workout_id, db),
+        ))
+    return result
+
+
 # Get a single workout with its full ordered exercise list
 @router.get("/{workout_id}", response_model=WorkoutDetailOut)
 def get_workout(workout_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
@@ -224,20 +261,78 @@ def unsave_workout(workout_id: int, db: Session = Depends(get_db), current_user=
     db.commit()
 
 
-# Add a workout to the user's calendar on a specific date
+# Add a workout to the calendar on a specific date.
+# Coaches can supply client_user_id to schedule on behalf of an active client.
 @router.post("/{workout_id}/schedule", response_model=ScheduledWorkoutOut, status_code=201)
 def schedule_workout(workout_id: int, data: ScheduledWorkoutIn, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     _get_or_404(workout_id, db)
-    if db.query(ScheduledWorkout).filter_by(user_id=current_user.user_id, workout_id=workout_id, scheduled_date=data.scheduled_date).first():
+
+    target_user_id = current_user.user_id
+
+    if data.client_user_id is not None:
+        if current_user.role != 'coach':
+            raise HTTPException(status_code=403, detail="Only coaches can schedule workouts for clients")
+        target_client = db.query(Client).filter(Client.user_id == data.client_user_id).first()
+        if not target_client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        active_rel = db.query(ClientCoach).filter_by(
+            client_id=target_client.client_id,
+            coach_id=current_user.coach.coach_id,
+            status_name='Active',
+        ).first()
+        if not active_rel:
+            raise HTTPException(status_code=403, detail="No active coaching relationship with this client")
+        target_user_id = data.client_user_id
+
+    if db.query(ScheduledWorkout).filter_by(user_id=target_user_id, workout_id=workout_id, scheduled_date=data.scheduled_date).first():
         raise HTTPException(status_code=409, detail="Workout already scheduled for this date")
+
     db.add(ScheduledWorkout(
-        user_id=current_user.user_id,
+        user_id=target_user_id,
         workout_id=workout_id,
         scheduled_date=data.scheduled_date,
         status='Scheduled',
     ))
     db.commit()
     return ScheduledWorkoutOut(workout_id=workout_id, scheduled_date=data.scheduled_date, status='Scheduled')
+
+
+# Update a scheduled workout's status and optionally log performance (weight/reps/distance)
+@router.patch("/{workout_id}/schedule/{scheduled_date}", response_model=ScheduledWorkoutOut)
+def log_scheduled_workout(
+    workout_id: int,
+    scheduled_date: date,
+    data: WorkoutLogIn,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    scheduled = db.query(ScheduledWorkout).filter_by(
+        user_id=current_user.user_id,
+        workout_id=workout_id,
+        scheduled_date=scheduled_date,
+    ).first()
+    if not scheduled:
+        raise HTTPException(status_code=404, detail="Scheduled workout not found")
+
+    scheduled.status = data.status
+
+    if data.status == 'Completed' and data.set_results:
+        client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+        if not client:
+            raise HTTPException(status_code=400, detail="Only clients can log workout performance")
+        log = WorkoutLog(workout_id=workout_id, client_id=client.client_id)
+        db.add(log)
+        db.flush()  # populate log.workout_log_id before inserting set results
+        for sr in data.set_results:
+            db.add(SetResult(
+                workout_log_id=log.workout_log_id,
+                exercise_id=sr.exercise_id,
+                actual_weight=sr.actual_weight,
+                actual_value=sr.actual_value,
+            ))
+
+    db.commit()
+    return ScheduledWorkoutOut(workout_id=workout_id, scheduled_date=scheduled_date, status=data.status)
 
 
 # Remove a specific workout from the calendar by date
