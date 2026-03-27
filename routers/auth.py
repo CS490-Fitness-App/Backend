@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from core.auth0 import auth
+from core.auth0 import auth, bearer_scheme
+from core.config import settings
 from core.database import get_db
-from dependencies.rbac import require_admin, require_client, require_coach
 from models.user import Admin, Client, Coach, User
 from schemas.auth import AuthRequestIn, AuthUserOut, LogoutOut
 
@@ -181,6 +181,31 @@ def get_current_account(
 @router.post("/logout", response_model=LogoutOut)
 def logout_user():
     return LogoutOut(message="Logged out. Clear client token and call Auth0 logout in frontend.")
+
+@router.get("/debug-token")
+def debug_token(credentials=Depends(bearer_scheme)):
+    """Debug: decode incoming JWT and compare against backend config. Remove before prod."""
+    from core.auth0 import _decode_jwt_payload
+    if not credentials:
+        return {"error": "No Authorization header"}
+    try:
+        claims = _decode_jwt_payload(credentials.credentials)
+    except Exception as exc:
+        return {"error": f"Cannot decode JWT: {exc}", "hint": "Token may be opaque (audience not configured in Auth0)"}
+
+    expected_iss = f"https://{settings.auth0_domain}/"
+    aud = claims.get("aud")
+    aud_ok = settings.auth0_api_audience in (aud if isinstance(aud, list) else [aud])
+
+    return {
+        "token": {"iss": claims.get("iss"), "aud": aud, "sub": claims.get("sub")},
+        "backend_expects": {"iss": expected_iss, "aud": settings.auth0_api_audience},
+        "checks": {
+            "iss_match": claims.get("iss") == expected_iss,
+            "aud_match": aud_ok,
+            "sub_present": bool(claims.get("sub")),
+        },
+    }
 
 
 @router.get("/rbac/client")
