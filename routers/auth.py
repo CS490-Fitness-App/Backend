@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from core.auth0 import auth, bearer_scheme
 from core.config import settings
 from core.database import get_db
+from dependencies.rbac import get_current_user, require_client, require_coach, require_admin
 from models.user import Admin, Client, Coach, User
 from schemas.auth import AuthRequestIn, AuthUserOut, LogoutOut
 
