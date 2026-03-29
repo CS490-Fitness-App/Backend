@@ -100,3 +100,5 @@ class ScheduledWorkout(Base):
     status         = Column(String(50))
     created_at     = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated   = Column(DateTime(timezone=True), nullable=False, default=_now)
+
+    workout = relationship('Workout')

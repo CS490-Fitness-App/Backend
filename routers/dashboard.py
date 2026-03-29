@@ -52,7 +52,7 @@ def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(get
         recent_activity = f"Last workout: {log_date}"
 
     return {
-        "name": full_name,
+        "name": (user.first_name or full_name) if user else full_name,
         "today_workouts": [
             {
                 "workout_id": sw.workout_id,

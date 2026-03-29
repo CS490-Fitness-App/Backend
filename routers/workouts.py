@@ -7,9 +7,9 @@ from datetime import date
 
 from core.database import get_db
 from dependencies.rbac import get_current_user
-from models.workout import Workout, WorkoutPlan, SavedWorkout, ScheduledWorkout, WorkoutLog, SetResult
 from models.coach import ClientCoach
 from models.user import Client
+from models.workout import Workout, WorkoutPlan, SavedWorkout, ScheduledWorkout, WorkoutLog, SetResult
 from schemas.workout import (
     WorkoutIn, WorkoutOut, WorkoutDetailOut, WorkoutExerciseOut,
     ScheduledWorkoutIn, ScheduledWorkoutOut,
@@ -26,7 +26,7 @@ def _get_or_404(workout_id: int, db: Session) -> Workout:
     w = (
         db.query(Workout)
         .options(
-            joinedload(Workout.experience_level),   # avoids lazy-load on access
+            joinedload(Workout.experience_level),
             joinedload(Workout.goal_type),
         )
         .filter(Workout.workout_id == workout_id)
@@ -59,8 +59,8 @@ def _get_exercises(workout_id: int, db: Session) -> List[WorkoutExerciseOut]:
     plans = (
         db.query(WorkoutPlan)
         .options(
-            joinedload(WorkoutPlan.exercise),   # need exercise name
-            joinedload(WorkoutPlan.unit),       # need unit name (reps/kg/etc.)
+            joinedload(WorkoutPlan.exercise),
+            joinedload(WorkoutPlan.unit),
         )
         .filter(WorkoutPlan.workout_id == workout_id)
         .order_by(WorkoutPlan.order_in_workout)
@@ -71,7 +71,7 @@ def _get_exercises(workout_id: int, db: Session) -> List[WorkoutExerciseOut]:
             exercise_id=p.exercise_id,
             exercise_name=p.exercise.name,
             sets=p.sets,
-            target_value=float(p.target_value) if p.target_value is not None else None,  # Numeric → float
+            target_value=float(p.target_value) if p.target_value is not None else None,
             unit_name=p.unit.unit_name,
             order_in_workout=p.order_in_workout,
             rest=p.rest,
@@ -174,7 +174,6 @@ def get_workout(workout_id: int, db: Session = Depends(get_db), current_user=Dep
 # Create a workout and its exercises in one request (frontend submits everything on save)
 @router.post("", response_model=WorkoutDetailOut, status_code=201)
 def create_workout(data: WorkoutIn, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    # WorkoutPlan PK is (workout_id, exercise_id) — the same exercise can't appear twice
     ids = [ex.exercise_id for ex in data.exercises]
     if len(ids) != len(set(ids)):
         raise HTTPException(status_code=400, detail="Duplicate exercise IDs in workout plan")
@@ -191,19 +190,17 @@ def create_workout(data: WorkoutIn, db: Session = Depends(get_db), current_user=
         image_url=data.image_url,
     )
     db.add(workout)
-    db.flush()                              # get workout_id from DB before inserting plan rows
+    db.flush()
     _insert_exercises(workout.workout_id, data.exercises, db)
     db.commit()
 
-    # re-query after commit to get fresh data with all relationships loaded
     w = _get_or_404(workout.workout_id, db)
     return WorkoutDetailOut(**_to_out(w).model_dump(), exercises=_get_exercises(workout.workout_id, db))
 
 
-# Replace a workout's metadata and full exercise list (frontend sends the complete updated plan on save)
+# Replace a workout's metadata and full exercise list
 @router.put("/{workout_id}", response_model=WorkoutDetailOut)
 def update_workout(workout_id: int, data: WorkoutIn, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    # same duplicate check as create — PK constraint would otherwise cause an IntegrityError
     ids = [ex.exercise_id for ex in data.exercises]
     if len(ids) != len(set(ids)):
         raise HTTPException(status_code=400, detail="Duplicate exercise IDs in workout plan")
@@ -212,7 +209,6 @@ def update_workout(workout_id: int, data: WorkoutIn, db: Session = Depends(get_d
     if w.creator_id != current_user.user_id:
         raise HTTPException(status_code=403, detail="Not authorized to edit this workout")
 
-    # update workout metadata fields
     w.name = data.name
     w.assigned_to = data.assigned_to
     w.goal_type_id = data.goal_type_id
@@ -222,7 +218,6 @@ def update_workout(workout_id: int, data: WorkoutIn, db: Session = Depends(get_d
     w.intended_duration_weeks = data.intended_duration_weeks
     w.image_url = data.image_url
 
-    # wipe existing exercises and replace with the new ordered list from the frontend
     db.query(WorkoutPlan).filter(WorkoutPlan.workout_id == workout_id).delete()
     _insert_exercises(workout_id, data.exercises, db)
     db.commit()
@@ -244,7 +239,7 @@ def delete_workout(workout_id: int, db: Session = Depends(get_db), current_user=
 # Bookmark a workout to the user's saved list
 @router.post("/{workout_id}/save", status_code=201)
 def save_workout(workout_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    _get_or_404(workout_id, db)     # confirm workout exists before saving
+    _get_or_404(workout_id, db)
     if db.query(SavedWorkout).filter_by(user_id=current_user.user_id, workout_id=workout_id).first():
         raise HTTPException(status_code=409, detail="Workout already saved")
     db.add(SavedWorkout(user_id=current_user.user_id, workout_id=workout_id))
