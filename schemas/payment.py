@@ -1,7 +1,7 @@
 # Pydantic schemas for saved payment cards and coach payment history.
 # Used by the payments router to validate card input and format financial records.
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
 class CardIn(BaseModel):
@@ -20,4 +20,3 @@ class CardOut(BaseModel):
     expiry_year: int
     zip_code: str | None
     is_default: bool
-    model_config = ConfigDict(from_attributes=True)
