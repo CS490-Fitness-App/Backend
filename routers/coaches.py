@@ -10,6 +10,7 @@ from models.user import User, Coach, CoachStatus, Client
 from models.coach import ClientCoach, CoachCertification, CoachAvailability, coach_specialities
 from models.log import Goal, GoalType
 from models.notification import Notification
+from models.payment import Card
 
 from schemas.coach import CoachOut, CoachRegisterIn
 
@@ -204,6 +205,11 @@ def send_request(
     if existing_relationship:
         raise HTTPException(status_code=409, detail="A request or contract already exists between this client and coach.")
     
+    #require a saved payment method before allowing a contract request
+    has_payment = db.query(Card).filter_by(user_id=current_user.user_id).first()
+    if not has_payment:
+        raise HTTPException(status_code=402, detail="A saved payment method is required before submitting a contract request.")
+
     #if valid add pending request to ClientCoach table and return success message
     new_request = ClientCoach(client_id=client_id, coach_id=coach_id, status_name='Pending')
     db.add(new_request)
