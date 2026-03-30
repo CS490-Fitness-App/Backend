@@ -10,7 +10,7 @@ from models.workout import Workout, WorkoutLog, ScheduledWorkout
 
 router = APIRouter(
     prefix="/dashboard",
-    tags=["Dashboard"]
+    tags=["dashboard"]
 )
 
 
