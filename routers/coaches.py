@@ -178,7 +178,7 @@ def browse_coaches(
         )
 
     coaches = query.distinct().all()
-    return coaches
+    return [_build_coach_out(coach, db) for coach in coaches]
 
 # Send coaching request from client to coach
 @router.post("/request")
