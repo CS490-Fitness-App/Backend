@@ -65,7 +65,7 @@ class WorkoutLog(Base):
 
     workout     = relationship('Workout')
     client      = relationship('Client')
-    set_results = relationship('SetResult', back_populates='workout_log')
+    set_results = relationship('SetResult', back_populates='workout_log', foreign_keys='SetResult.workout_log_id')
 
 
 class SetResult(Base):
