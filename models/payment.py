@@ -30,7 +30,7 @@ class Card(Base):
     zip_code     = Column(CHAR(10))
     is_default   = Column(Boolean, nullable=False, default=False)
     created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
-    last_updated = Column(DateTime(timezone=True), nullable=False, default=_now)
+    last_updated = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
 
     card_type = relationship('CardType')
 
