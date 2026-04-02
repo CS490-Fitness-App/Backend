@@ -171,3 +171,39 @@ console.log(data);
 - `401 Token issuer mismatch` or `401 Token audience mismatch`: Auth0 settings/token config do not match backend config.
 - `404 User not found in local database`: call `/auth/login` first.
 - `409 Account already exists`: account was already created, use `/auth/login`.
+
+## Docker
+
+This repo includes a Docker Compose setup for running the full local stack.
+
+Files:
+
+- `docker-compose.yml`
+- `.env`(*)
+- `Dockerfile`
+
+(*) Added these variables to `Backend/.env` for Docker:
+
+- `AUTH0_DOMAIN`
+- `AUTH0_API_AUDIENCE`
+- `VITE_AUTH0_DOMAIN`
+- `VITE_AUTH0_CLIENT_ID`
+- `VITE_AUTH0_AUDIENCE`
+
+Run from the `Backend/` folder:
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
+- Backend docs: `http://localhost:8000/docs`
+- MySQL from host machine: `127.0.0.1:3307`
+
+Notes:
+
+- This setup expects the `Frontend/` repo to exist as a sibling folder next to `Backend/`.
+- The existing local Python virtual environment (`bck_env`) is excluded from Docker builds.
