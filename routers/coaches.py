@@ -7,7 +7,8 @@ from typing import Optional
 from core.database import get_db
 from dependencies.rbac import require_client, require_coach, get_current_user
 from models.user import User, Coach, CoachStatus, Client
-from models.coach import ClientCoach, CoachCertification, CoachAvailability, coach_specialities
+from models.coach import ClientCoach, CoachCertification, CoachAvailability, CoachSessionFormat, coach_specialities
+from models.user import SessionFormat
 from models.log import Goal, GoalType
 from models.notification import Notification
 from models.payment import Card
@@ -91,13 +92,17 @@ def register_coach(
         is_nutritionist=data.is_nutritionist,
         years_of_experience=data.years_of_experience,
         max_clients=data.max_clients,
-        session_format=data.session_format
     )
     db.add(coach)
 
     # flush sends the INSERT to the DB so SQLAlchemy assigns coach.coach_id,
     # but does NOT commit — everything is still inside one transaction.
     db.flush()
+
+    # add session format to Coach_Session_Formats junction table
+    sf = db.query(SessionFormat).filter(SessionFormat.session_format_name == data.session_format).first()
+    if sf:
+        db.add(CoachSessionFormat(coach_id=coach.coach_id, session_format_id=sf.session_format_id))
 
     # adds certs row by row into Coach_Certifications table
     for cert_name in data.certifications:
@@ -164,10 +169,16 @@ def browse_coaches(
     if max_rate is not None:
         query = query.filter(Coach.hourly_rate <= max_rate)
     if session_format:
-        if session_format == 'Virtual':
-            query = query.filter(Coach.session_format.in_(['Virtual', 'Both']))
-        elif session_format == 'In-Person':
-            query = query.filter(Coach.session_format.in_(['In-Person', 'Both']))
+        if session_format in ('Virtual', 'In-Person'):
+            format_names = [session_format, 'Both']
+        else:
+            format_names = [session_format]
+        query = (
+            query
+            .join(CoachSessionFormat, CoachSessionFormat.coach_id == Coach.coach_id)
+            .join(SessionFormat, SessionFormat.session_format_id == CoachSessionFormat.session_format_id)
+            .filter(SessionFormat.session_format_name.in_(format_names))
+        )
     
     # Filter by specialty requires joining coach_specialities
     if specialty:

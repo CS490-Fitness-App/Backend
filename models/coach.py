@@ -41,6 +41,13 @@ class CoachAvailability(Base):
     last_updated    = Column(DateTime(timezone=True), nullable=False, default=_now)
 
 
+class CoachSessionFormat(Base):
+    __tablename__ = 'coach_session_formats'
+
+    coach_id          = Column(Integer, ForeignKey('coaches.coach_id',                       ondelete='CASCADE'), primary_key=True)
+    session_format_id = Column(Integer, ForeignKey('session_formats.session_format_id',      ondelete='CASCADE'), primary_key=True)
+
+
 class ClientCoach(Base):
     __tablename__ = 'client_coach'
 
