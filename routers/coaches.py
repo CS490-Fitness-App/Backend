@@ -15,7 +15,7 @@ from models.payment import Card
 
 from schemas.coach import CoachOut, CoachRegisterIn, CoachClientsOut, ClientEntry
 
-router = APIRouter(prefix="/coaches", tags=["coaches"])
+router = APIRouter(prefix="/coaches", tags=["coaches"], redirect_slashes=False)
 
 
 # Helper to build CoachOut from a Coach ORM object
