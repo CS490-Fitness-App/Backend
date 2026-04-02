@@ -1,0 +1,6 @@
+bck_env
+venv
+__pycache__
+*.pyc
+.env
+.git
