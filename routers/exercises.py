@@ -1,5 +1,7 @@
 # Handles exercise inventory endpoints (UC 3.1, UC 6.1): read access for all users and full CRUD for admins.
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload, selectinload
 from typing import List
@@ -104,7 +106,6 @@ def create_exercise(
 
     db.add(exercise)
     db.commit()
-    db.refresh(exercise)
 
     return _to_out(_get_exercise_or_404(exercise.exercise_id, db))
 
@@ -128,9 +129,9 @@ def update_exercise(
     exercise.image_url = data.image_url
     exercise.video_url = data.video_url
     exercise.muscle_groups = muscle_groups
+    exercise.last_updated = datetime.now(timezone.utc)
 
     db.commit()
-    db.refresh(exercise)
 
     return _to_out(_get_exercise_or_404(exercise.exercise_id, db))
 
