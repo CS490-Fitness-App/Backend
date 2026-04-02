@@ -12,15 +12,15 @@ def _now():
 
 
 class Workout(Base):
-    __tablename__ = 'Workouts'
+    __tablename__ = 'workouts'
 
     workout_id              = Column(Integer, primary_key=True, autoincrement=True)
-    creator_id              = Column(Integer, ForeignKey('Users.user_id'), nullable=False)
-    assigned_to             = Column(Integer, ForeignKey('Users.user_id'))
+    creator_id              = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    assigned_to             = Column(Integer, ForeignKey('users.user_id'))
     name                    = Column(String(255), nullable=False)
     status                  = Column(String(20), default='Not Scheduled')
-    goal_type_id            = Column(Integer, ForeignKey('Goal_Types.goal_type_id'))
-    experience_level_id     = Column(Integer, ForeignKey('Experience_Levels.experience_level_id'))
+    goal_type_id            = Column(Integer, ForeignKey('goal_types.goal_type_id'))
+    experience_level_id     = Column(Integer, ForeignKey('experience_levels.experience_level_id'))
     equipment_required      = Column(String(255))
     workout_time_mins       = Column(Integer)
     intended_duration_weeks = Column(Integer)
@@ -35,13 +35,13 @@ class Workout(Base):
 
 
 class WorkoutPlan(Base):
-    __tablename__ = 'Workout_Plans'
+    __tablename__ = 'workout_plans'
 
-    workout_id       = Column(Integer, ForeignKey('Workouts.workout_id',   ondelete='CASCADE'), primary_key=True)
-    exercise_id      = Column(Integer, ForeignKey('Exercises.exercise_id', ondelete='CASCADE'), primary_key=True)
+    workout_id       = Column(Integer, ForeignKey('workouts.workout_id',   ondelete='CASCADE'), primary_key=True)
+    exercise_id      = Column(Integer, ForeignKey('exercises.exercise_id', ondelete='CASCADE'), primary_key=True)
     sets             = Column(Integer)
     target_value     = Column(Numeric(8, 2))
-    unit_id          = Column(Integer, ForeignKey('Units.unit_id'), nullable=False)
+    unit_id          = Column(Integer, ForeignKey('units.unit_id'), nullable=False)
     order_in_workout = Column(Integer)
     rest             = Column(Integer)      # seconds
     weeks_completed  = Column(Integer, nullable=False, default=0)
@@ -54,11 +54,11 @@ class WorkoutPlan(Base):
 
 
 class WorkoutLog(Base):
-    __tablename__ = 'Workout_Logs'
+    __tablename__ = 'workout_logs'
 
     workout_log_id = Column(Integer, primary_key=True, autoincrement=True)
-    workout_id     = Column(Integer, ForeignKey('Workouts.workout_id', ondelete='CASCADE'), nullable=False)
-    client_id      = Column(Integer, ForeignKey('Clients.client_id',   ondelete='CASCADE'), nullable=False)
+    workout_id     = Column(Integer, ForeignKey('workouts.workout_id', ondelete='CASCADE'), nullable=False)
+    client_id      = Column(Integer, ForeignKey('clients.client_id',   ondelete='CASCADE'), nullable=False)
     logged_at      = Column(DateTime(timezone=True), nullable=False, default=_now)
     created_at     = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated   = Column(DateTime(timezone=True), nullable=False, default=_now)
@@ -69,7 +69,7 @@ class WorkoutLog(Base):
 
 
 class SetResult(Base):
-    __tablename__ = 'Set_Results'
+    __tablename__ = 'set_results'
 
     set_results_id = Column(Integer, primary_key=True, autoincrement=True)
     workout_log_id = Column(Integer, ForeignKey('Workout_Logs.workout_log_id', ondelete='CASCADE'), nullable=False)
@@ -84,18 +84,18 @@ class SetResult(Base):
 
 
 class SavedWorkout(Base):
-    __tablename__ = 'Saved_Workouts'
+    __tablename__ = 'saved_workouts'
 
-    user_id    = Column(Integer, ForeignKey('Users.user_id',       ondelete='CASCADE'), primary_key=True)
-    workout_id = Column(Integer, ForeignKey('Workouts.workout_id', ondelete='CASCADE'), primary_key=True)
+    user_id    = Column(Integer, ForeignKey('users.user_id',       ondelete='CASCADE'), primary_key=True)
+    workout_id = Column(Integer, ForeignKey('workouts.workout_id', ondelete='CASCADE'), primary_key=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
 
 
 class ScheduledWorkout(Base):
-    __tablename__ = 'Scheduled_Workout'
+    __tablename__ = 'scheduled_workout'
 
-    user_id        = Column(Integer, ForeignKey('Users.user_id',       ondelete='CASCADE'), primary_key=True)
-    workout_id     = Column(Integer, ForeignKey('Workouts.workout_id', ondelete='CASCADE'), primary_key=True)
+    user_id        = Column(Integer, ForeignKey('users.user_id',       ondelete='CASCADE'), primary_key=True)
+    workout_id     = Column(Integer, ForeignKey('workouts.workout_id', ondelete='CASCADE'), primary_key=True)
     scheduled_date = Column(Date, primary_key=True)
     status         = Column(String(50))
     created_at     = Column(DateTime(timezone=True), nullable=False, default=_now)

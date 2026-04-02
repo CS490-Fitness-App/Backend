@@ -12,11 +12,11 @@ def _now():
 
 
 class Review(Base):
-    __tablename__ = 'Reviews'
+    __tablename__ = 'reviews'
 
     review_id    = Column(Integer, primary_key=True, autoincrement=True)
-    client_id    = Column(Integer, ForeignKey('Clients.client_id', ondelete='CASCADE'), nullable=False)
-    coach_id     = Column(Integer, ForeignKey('Coaches.coach_id',  ondelete='CASCADE'), nullable=False)
+    client_id    = Column(Integer, ForeignKey('clients.client_id', ondelete='CASCADE'), nullable=False)
+    coach_id     = Column(Integer, ForeignKey('coaches.coach_id',  ondelete='CASCADE'), nullable=False)
     description  = Column(Text)
     rating       = Column(SmallInteger, nullable=False)
     created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
@@ -27,11 +27,11 @@ class Review(Base):
 
 
 class Report(Base):
-    __tablename__ = 'Reports'
+    __tablename__ = 'reports'
 
     report_id    = Column(Integer, primary_key=True, autoincrement=True)
-    reporter_id  = Column(Integer, ForeignKey('Users.user_id',   ondelete='CASCADE'), nullable=False)
-    coach_id     = Column(Integer, ForeignKey('Coaches.coach_id', ondelete='CASCADE'), nullable=False)
+    reporter_id  = Column(Integer, ForeignKey('users.user_id',   ondelete='CASCADE'), nullable=False)
+    coach_id     = Column(Integer, ForeignKey('coaches.coach_id', ondelete='CASCADE'), nullable=False)
     reason       = Column(Text)
     status       = Column(String(50), default='Pending')
     created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
