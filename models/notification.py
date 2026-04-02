@@ -12,10 +12,10 @@ def _now():
 
 
 class Notification(Base):
-    __tablename__ = 'Notifications'
+    __tablename__ = 'notifications'
 
     notification_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id         = Column(Integer, ForeignKey('Users.user_id', ondelete='CASCADE'), nullable=False)
+    user_id         = Column(Integer, ForeignKey('users.user_id', ondelete='CASCADE'), nullable=False)
     message         = Column(Text, nullable=False)
     created_at      = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated    = Column(DateTime(timezone=True), nullable=False, default=_now)
