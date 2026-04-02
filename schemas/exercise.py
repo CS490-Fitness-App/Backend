@@ -5,6 +5,18 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 
+class ExerciseIn(BaseModel):
+    name: str
+    category_id: int
+    experience_level_id: Optional[int] = None
+    equipment: Optional[str] = None
+    instructions: Optional[str] = None
+    tips: Optional[str] = None
+    image_url: Optional[str] = None
+    video_url: Optional[str] = None
+    muscle_group_ids: List[int] = []
+
+
 class ExerciseOut(BaseModel):
     exercise_id: int
     name: str
