@@ -1,27 +1,34 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from core.database import get_db
+from dependencies.rbac import get_current_user
 from models.user import User, Client
-from models.workout import Workout, WorkoutLog
+from models.workout import Workout, WorkoutLog, ScheduledWorkout
 
 router = APIRouter(
     prefix="/dashboard",
-    tags=["Dashboard"]
+    tags=["dashboard"]
 )
 
+
 @router.get("/client")
-def get_client_dashboard(db: Session = Depends(get_db)):
-    demo_user_id = 1
+def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    user = db.query(User).filter(User.user_id == current_user.user_id).first()
+    client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
 
-    user = db.query(User).filter(User.user_id == demo_user_id).first()
-    client = db.query(Client).filter(Client.user_id == demo_user_id).first()
-
-    latest_workout = (
-        db.query(Workout)
-        .filter(Workout.assigned_to == demo_user_id)
-        .order_by(Workout.created_at.desc())
-        .first()
+    # Today's scheduled workouts from the calendar
+    today = date.today()
+    scheduled_today = (
+        db.query(ScheduledWorkout)
+        .options(joinedload(ScheduledWorkout.workout))
+        .filter(
+            ScheduledWorkout.user_id == current_user.user_id,
+            ScheduledWorkout.scheduled_date == today,
+        )
+        .all()
     )
 
     latest_log = None
@@ -45,7 +52,14 @@ def get_client_dashboard(db: Session = Depends(get_db)):
         recent_activity = f"Last workout: {log_date}"
 
     return {
-        "name": full_name,
-        "today_workout": latest_workout.name if latest_workout else "No workout assigned.",
+        "name": (user.first_name or full_name) if user else full_name,
+        "today_workouts": [
+            {
+                "workout_id": sw.workout_id,
+                "name": sw.workout.name,
+                "status": sw.status,
+            }
+            for sw in scheduled_today
+        ],
         "recent_activity": recent_activity,
     }

@@ -72,13 +72,15 @@ class SetResult(Base):
     __tablename__ = 'set_results'
 
     set_results_id = Column(Integer, primary_key=True, autoincrement=True)
-    workout_log_id = Column(Integer, ForeignKey('workout_logs.workout_log_id', ondelete='CASCADE'), nullable=False)
+    workout_log_id = Column(Integer, ForeignKey('Workout_Logs.workout_log_id', ondelete='CASCADE'), nullable=False)
+    exercise_id    = Column(Integer, ForeignKey('Exercises.exercise_id', ondelete='CASCADE'), nullable=True)
     actual_weight  = Column(Numeric(8, 2))
     actual_value   = Column(Numeric(8, 2))
     created_at     = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated   = Column(DateTime(timezone=True), nullable=False, default=_now)
 
     workout_log = relationship('WorkoutLog', back_populates='set_results')
+    exercise    = relationship('Exercise')
 
 
 class SavedWorkout(Base):
@@ -98,3 +100,5 @@ class ScheduledWorkout(Base):
     status         = Column(String(50))
     created_at     = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated   = Column(DateTime(timezone=True), nullable=False, default=_now)
+
+    workout = relationship('Workout')
