@@ -164,9 +164,9 @@ def browse_coaches(
         query = query.filter(Coach.hourly_rate <= max_rate)
     if session_format:
         if session_format == 'Virtual':
-            query = query.filter(Coach.session_formats.in_(['Virtual', 'Both']))
+            query = query.filter(Coach.session_format.in_(['Virtual', 'Both']))
         elif session_format == 'In-Person':
-            query = query.filter(Coach.session_formats.in_(['In-Person', 'Both']))
+            query = query.filter(Coach.session_format.in_(['In-Person', 'Both']))
     
     # Filter by specialty requires joining coach_specialities
     if specialty:

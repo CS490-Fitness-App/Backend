@@ -65,7 +65,7 @@ class WorkoutLog(Base):
 
     workout     = relationship('Workout')
     client      = relationship('Client')
-    set_results = relationship('SetResult', back_populates='workout_log')
+    set_results = relationship('SetResult', back_populates='workout_log', foreign_keys='SetResult.workout_log_id')
 
 
 class SetResult(Base):
@@ -78,7 +78,7 @@ class SetResult(Base):
     created_at     = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated   = Column(DateTime(timezone=True), nullable=False, default=_now)
 
-    workout_log = relationship('WorkoutLog', back_populates='set_results')
+    workout_log = relationship('WorkoutLog', back_populates='set_results', foreign_keys=[workout_log_id])
 
 
 class SavedWorkout(Base):
