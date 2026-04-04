@@ -259,8 +259,10 @@ def accept_request(
     if not relationship:
         raise HTTPException(status_code=404, detail="No pending request found between this client and coach.")
 
-    #update status to active and return success message
+    #update status to active and record when the contract started
+    from datetime import datetime, timezone
     relationship.status_name = 'Active'
+    relationship.activated_at = datetime.now(timezone.utc)
     db.commit()
 
     #get coach's name for notification
@@ -394,7 +396,7 @@ def get_coach_clients(
     db: Session = Depends(get_db),
     current_user=Depends(require_coach),
 ):
-    if current_user.coach.coach_id != coach_id:
+    if not current_user.coach or current_user.coach.coach_id != coach_id:
         raise HTTPException(status_code=403, detail="You are not authorized to view this coach's clients.")
 
     rows = (
@@ -418,6 +420,7 @@ def get_coach_clients(
             profile_picture=user.profile_picture,
             status=cc.status_name,
             since=cc.created_at,
+            active_since=cc.activated_at,
         )
         if cc.status_name == "Active":
             active_clients.append(entry)
