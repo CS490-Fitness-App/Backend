@@ -12,21 +12,21 @@ def _now():
 
 
 class CoachStatus(Base):
-    __tablename__ = 'Coach_Statuses'
+    __tablename__ = 'coach_statuses'
 
     status_id   = Column(Integer, primary_key=True, autoincrement=True)
     status_name = Column(String(50), nullable=False, unique=True)
 
 
 class SessionFormat(Base):
-    __tablename__ = 'Session_Formats'
+    __tablename__ = 'session_formats'
 
     session_format_id   = Column(Integer, primary_key=True, autoincrement=True)
     session_format_name = Column(String(50), nullable=False, unique=True)
 
 
 class User(Base):
-    __tablename__ = 'Users'
+    __tablename__ = 'users'
 
     user_id         = Column(Integer, primary_key=True, autoincrement=True)
     auth0_sub       = Column(String(128), nullable=False, unique=True)
@@ -44,10 +44,10 @@ class User(Base):
 
 
 class Client(Base):
-    __tablename__ = 'Clients'
+    __tablename__ = 'clients'
 
     client_id     = Column(Integer, primary_key=True, autoincrement=True)
-    user_id       = Column(Integer, ForeignKey('Users.user_id', ondelete='CASCADE'), nullable=False, unique=True)
+    user_id       = Column(Integer, ForeignKey('users.user_id', ondelete='CASCADE'), nullable=False, unique=True)
     DOB           = Column(Date)
     height        = Column(Integer)         # centimetres
     weight        = Column(Integer)         # grams
@@ -61,20 +61,19 @@ class Client(Base):
 
 
 class Coach(Base):
-    __tablename__ = 'Coaches'
+    __tablename__ = 'coaches'
 
     coach_id            = Column(Integer, primary_key=True, autoincrement=True)
-    user_id             = Column(Integer, ForeignKey('Users.user_id', ondelete='CASCADE'), nullable=False, unique=True)
+    user_id             = Column(Integer, ForeignKey('users.user_id', ondelete='CASCADE'), nullable=False, unique=True)
     gender              = Column(String(20))
     hourly_rate         = Column(Numeric(10, 2), nullable=False, default=0.00)
     accepting_clients   = Column(Boolean, nullable=False, default=True)
     bio                 = Column(Text)
-    status_id           = Column(Integer, ForeignKey('Coach_Statuses.status_id'), nullable=False, default=1)
+    status_id           = Column(Integer, ForeignKey('coach_statuses.status_id'), nullable=False, default=1)
     is_trainer          = Column(Boolean, nullable=False, default=True)
     is_nutritionist     = Column(Boolean, nullable=False, default=False)
     years_of_experience = Column(Integer)
     max_clients         = Column(Integer)
-    session_format      = Column('session_formats', String(20), nullable=False, default='Virtual')
     created_at          = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated        = Column(DateTime(timezone=True), nullable=False, default=_now)
 
@@ -83,10 +82,10 @@ class Coach(Base):
 
 
 class Admin(Base):
-    __tablename__ = 'Admins'
+    __tablename__ = 'admins'
 
     admin_id     = Column(Integer, primary_key=True, autoincrement=True)
-    user_id      = Column(Integer, ForeignKey('Users.user_id', ondelete='CASCADE'), nullable=False, unique=True)
+    user_id      = Column(Integer, ForeignKey('users.user_id', ondelete='CASCADE'), nullable=False, unique=True)
     created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated = Column(DateTime(timezone=True), nullable=False, default=_now)
 

@@ -7,13 +7,15 @@ from typing import Optional
 from core.database import get_db
 from dependencies.rbac import require_client, require_coach, get_current_user
 from models.user import User, Coach, CoachStatus, Client
-from models.coach import ClientCoach, CoachCertification, CoachAvailability, coach_specialities
+from models.coach import ClientCoach, CoachCertification, CoachAvailability, CoachSessionFormat, coach_specialities
+from models.user import SessionFormat
 from models.log import Goal, GoalType
 from models.notification import Notification
+from models.payment import Card
 
 from schemas.coach import CoachOut, CoachRegisterIn, CoachClientsOut, ClientEntry
 
-router = APIRouter(prefix="/coaches", tags=["coaches"])
+router = APIRouter(prefix="/coaches", tags=["coaches"], redirect_slashes=False)
 
 
 # Helper to build CoachOut from a Coach ORM object
@@ -90,13 +92,17 @@ def register_coach(
         is_nutritionist=data.is_nutritionist,
         years_of_experience=data.years_of_experience,
         max_clients=data.max_clients,
-        session_format=data.session_format
     )
     db.add(coach)
 
     # flush sends the INSERT to the DB so SQLAlchemy assigns coach.coach_id,
     # but does NOT commit — everything is still inside one transaction.
     db.flush()
+
+    # add session format to Coach_Session_Formats junction table
+    sf = db.query(SessionFormat).filter(SessionFormat.session_format_name == data.session_format).first()
+    if sf:
+        db.add(CoachSessionFormat(coach_id=coach.coach_id, session_format_id=sf.session_format_id))
 
     # adds certs row by row into Coach_Certifications table
     for cert_name in data.certifications:
@@ -163,10 +169,16 @@ def browse_coaches(
     if max_rate is not None:
         query = query.filter(Coach.hourly_rate <= max_rate)
     if session_format:
-        if session_format == 'Virtual':
-            query = query.filter(Coach.session_formats.in_(['Virtual', 'Both']))
-        elif session_format == 'In-Person':
-            query = query.filter(Coach.session_formats.in_(['In-Person', 'Both']))
+        if session_format in ('Virtual', 'In-Person'):
+            format_names = [session_format, 'Both']
+        else:
+            format_names = [session_format]
+        query = (
+            query
+            .join(CoachSessionFormat, CoachSessionFormat.coach_id == Coach.coach_id)
+            .join(SessionFormat, SessionFormat.session_format_id == CoachSessionFormat.session_format_id)
+            .filter(SessionFormat.session_format_name.in_(format_names))
+        )
     
     # Filter by specialty requires joining coach_specialities
     if specialty:
@@ -178,7 +190,7 @@ def browse_coaches(
         )
 
     coaches = query.distinct().all()
-    return coaches
+    return [_build_coach_out(coach, db) for coach in coaches]
 
 # Send coaching request from client to coach
 @router.post("/request")
@@ -204,6 +216,11 @@ def send_request(
     if existing_relationship:
         raise HTTPException(status_code=409, detail="A request or contract already exists between this client and coach.")
     
+    #require a saved payment method before allowing a contract request
+    has_payment = db.query(Card).filter_by(user_id=current_user.user_id).first()
+    if not has_payment:
+        raise HTTPException(status_code=402, detail="A saved payment method is required before submitting a contract request.")
+
     #if valid add pending request to ClientCoach table and return success message
     new_request = ClientCoach(client_id=client_id, coach_id=coach_id, status_name='Pending')
     db.add(new_request)
