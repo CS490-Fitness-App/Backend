@@ -12,8 +12,8 @@ from routers.clients import router as clients_router
 from routers.coaches import router as coaches_router
 from routers.dashboard import router as dashboard_router
 from routers.exercises import router as exercises_router
+from routers.notifications import router as notifications_router
 from routers.workouts import router as workouts_router
-from routers.dashboard import router as dashboard_router
 
 app = FastAPI(title="Primal Fitness Backend")
 
@@ -31,6 +31,7 @@ app.include_router(clients_router)
 app.include_router(workouts_router)
 app.include_router(coaches_router)
 app.include_router(exercises_router)
+app.include_router(notifications_router)
 app.include_router(dashboard_router)
 
 # serve everything inside the local ./uploads folder at the /uploads URL path
