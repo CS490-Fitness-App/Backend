@@ -16,7 +16,9 @@ DB_NAME     = os.getenv("DB_NAME")
 
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-engine = create_engine(DATABASE_URL)
+# TiDB Cloud (and other cloud MySQL) requires SSL
+connect_args = {"ssl": {"ssl_mode": "VERIFY_IDENTITY"}} if os.getenv("DB_SSL") else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
