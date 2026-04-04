@@ -41,7 +41,7 @@ class Conversation(Base):
 
     coach_user  = relationship('User', foreign_keys=[coach_user_id])
     client_user = relationship('User', foreign_keys=[client_user_id])
-    messages    = relationship('Message', back_populates='conversation', order_by='Message.sent_at')
+    messages    = relationship('Message', back_populates='conversation')
 
 
 # A single message within a conversation
