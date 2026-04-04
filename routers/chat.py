@@ -28,13 +28,17 @@ def _assert_participant(chat: Conversation, user_id: int) -> None:
         raise HTTPException(status_code=403, detail="You are not a participant in this chat.")
 
 
+def _full_name(user) -> str:
+    return f"{user.first_name or ''} {user.last_name or ''}".strip() or "Unknown"
+
+
 def _message_out(msg: Message) -> MessageOut:
     """Build MessageOut from a Message ORM object (sender must be eagerly loaded)."""
     return MessageOut(
         message_id=msg.message_id,
         chat_id=msg.chat_id,
         sender_id=msg.sender_id,
-        sender_name=f"{msg.sender.first_name} {msg.sender.last_name}",
+        sender_name=_full_name(msg.sender),
         message_type=msg.message_type,
         body=msg.body,
         ref_id=msg.ref_id,
@@ -53,7 +57,7 @@ def _conversation_out(chat: Conversation, caller_user_id: int) -> ConversationOu
         chat_id=chat.chat_id,
         coach_user_id=chat.coach_user_id,
         client_user_id=chat.client_user_id,
-        other_user_name=f"{other_user.first_name} {other_user.last_name}",
+        other_user_name=_full_name(other_user),
         created_at=chat.created_at,
     )
 
@@ -88,13 +92,17 @@ def list_chats(
     return [_conversation_out(chat, uid) for chat in chats]
 
 
-# POST /chats — create a new conversation between a coach and client
-@router.post("/", response_model=ConversationOut, status_code=201)
+# POST /chats — create a new conversation between a coach and client (returns existing if already present)
+@router.post("/", response_model=ConversationOut, status_code=200)
 def create_chat(
     data: ChatCreateIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # cannot chat with yourself
+    if data.other_user_id == current_user.user_id:
+        raise HTTPException(status_code=400, detail="You cannot create a chat with yourself.")
+
     # fetch the other user
     other_user = db.query(User).filter(User.user_id == data.other_user_id).first()
     if not other_user:
@@ -216,7 +224,7 @@ def send_message(
         if not db.query(Workout).filter(Workout.workout_id == data.ref_id).first():
             raise HTTPException(status_code=404, detail="Workout not found.")
 
-    # create and persist the message
+    # create and persist the message; bump conversation.last_updated so GET /chats sorts correctly
     msg = Message(
         chat_id=chat_id,
         sender_id=current_user.user_id,
@@ -226,6 +234,7 @@ def send_message(
         snapshot=data.snapshot,
     )
     db.add(msg)
+    chat.last_updated = datetime.now(timezone.utc)
     db.commit()
     db.refresh(msg)
 

@@ -3,7 +3,7 @@
 
 from typing import Literal, Optional
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, model_validator
 
 
 class ChatCreateIn(BaseModel):
