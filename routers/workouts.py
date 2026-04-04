@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from typing import List
-from datetime import date
+from typing import List, Optional
+from datetime import date, timedelta
 
 from core.database import get_db
 from dependencies.rbac import get_current_user
@@ -11,6 +11,8 @@ from models.workout import Workout, WorkoutPlan, SavedWorkout, ScheduledWorkout
 from schemas.workout import (
     WorkoutIn, WorkoutOut, WorkoutDetailOut, WorkoutExerciseOut,
     ScheduledWorkoutIn, ScheduledWorkoutOut,
+    WorkoutLogIn, CalendarWorkoutOut,
+    RescheduleIn, RecurringScheduleIn, RecurringScheduleOut,
 )
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
@@ -91,6 +93,34 @@ def _insert_exercises(workout_id: int, exercises, db: Session):
         ))
 
 
+def _resolve_target_user(current_user, client_user_id: Optional[int], db: Session) -> int:
+    """
+    Return the user_id to act on behalf of.
+    If client_user_id is provided, the caller must be a coach with an active relationship.
+    """
+    if client_user_id is None:
+        return current_user.user_id
+
+    if current_user.role != 'coach':
+        raise HTTPException(status_code=403, detail="Only coaches can act on behalf of clients")
+    if not current_user.coach:
+        raise HTTPException(status_code=400, detail="Coach profile not found")
+
+    target_client = db.query(Client).filter(Client.user_id == client_user_id).first()
+    if not target_client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    active_rel = db.query(ClientCoach).filter_by(
+        client_id=target_client.client_id,
+        coach_id=current_user.coach.coach_id,
+        status_name='Active',
+    ).first()
+    if not active_rel:
+        raise HTTPException(status_code=403, detail="No active coaching relationship with this client")
+
+    return client_user_id
+
+
 # --- Endpoints ---
 
 # Browse the full workout library
@@ -125,6 +155,44 @@ def list_saved_workouts(db: Session = Depends(get_db), current_user=Depends(get_
         .all()
     )
     return [_to_out(w) for w in workouts]
+
+
+# Get scheduled workouts for the calendar, with optional date range and client filtering.
+# Coaches can pass client_user_id to view a client's calendar (requires active relationship).
+# NOTE: must be declared BEFORE /{workout_id} so FastAPI doesn't match "scheduled" as an integer ID
+@router.get("/scheduled", response_model=List[CalendarWorkoutOut])
+def list_scheduled_workouts(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    client_user_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    target_user_id = _resolve_target_user(current_user, client_user_id, db)
+
+    query = db.query(ScheduledWorkout).filter(ScheduledWorkout.user_id == target_user_id)
+    if start_date:
+        query = query.filter(ScheduledWorkout.scheduled_date >= start_date)
+    if end_date:
+        query = query.filter(ScheduledWorkout.scheduled_date <= end_date)
+    rows = query.order_by(ScheduledWorkout.scheduled_date).all()
+
+    result = []
+    for row in rows:
+        w = _get_or_404(row.workout_id, db)
+        out = _to_out(w)
+        result.append(CalendarWorkoutOut(
+            scheduled_date=row.scheduled_date,
+            status=row.status,
+            workout_id=w.workout_id,
+            name=w.name,
+            image_url=w.image_url,
+            experience_level=out.experience_level,
+            goal_type=out.goal_type,
+            workout_time_mins=w.workout_time_mins,
+            exercises=_get_exercises(w.workout_id, db),
+        ))
+    return result
 
 
 # Get a single workout with its full ordered exercise list
@@ -228,7 +296,10 @@ def unsave_workout(workout_id: int, db: Session = Depends(get_db), current_user=
 @router.post("/{workout_id}/schedule", response_model=ScheduledWorkoutOut, status_code=201)
 def schedule_workout(workout_id: int, data: ScheduledWorkoutIn, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     _get_or_404(workout_id, db)
-    if db.query(ScheduledWorkout).filter_by(user_id=current_user.user_id, workout_id=workout_id, scheduled_date=data.scheduled_date).first():
+
+    target_user_id = _resolve_target_user(current_user, data.client_user_id, db)
+
+    if db.query(ScheduledWorkout).filter_by(user_id=target_user_id, workout_id=workout_id, scheduled_date=data.scheduled_date).first():
         raise HTTPException(status_code=409, detail="Workout already scheduled for this date")
     db.add(ScheduledWorkout(
         user_id=current_user.user_id,
@@ -238,6 +309,124 @@ def schedule_workout(workout_id: int, data: ScheduledWorkoutIn, db: Session = De
     ))
     db.commit()
     return ScheduledWorkoutOut(workout_id=workout_id, scheduled_date=data.scheduled_date, status='Scheduled')
+
+
+# Schedule a workout across multiple weeks using a day-of-week pattern.
+# days_of_week: list of integers 0=Monday … 6=Sunday.
+# Anchors to the Monday of start_date's week and generates num_weeks of dates.
+# Already-scheduled dates are skipped rather than erroring.
+@router.post("/{workout_id}/schedule/recurring", response_model=RecurringScheduleOut, status_code=201)
+def schedule_recurring(workout_id: int, data: RecurringScheduleIn, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    _get_or_404(workout_id, db)
+
+    if not data.days_of_week:
+        raise HTTPException(status_code=400, detail="days_of_week must not be empty")
+    if data.num_weeks < 1:
+        raise HTTPException(status_code=400, detail="num_weeks must be at least 1")
+    invalid = [d for d in data.days_of_week if d < 0 or d > 6]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Invalid days_of_week values: {invalid}. Use 0=Monday … 6=Sunday")
+
+    target_user_id = _resolve_target_user(current_user, data.client_user_id, db)
+
+    # anchor to the Monday of the week containing start_date
+    monday = data.start_date - timedelta(days=data.start_date.weekday())
+
+    scheduled = []
+    skipped_dates = []
+
+    for week in range(data.num_weeks):
+        for day in sorted(set(data.days_of_week)):
+            target_date = monday + timedelta(days=week * 7 + day)
+            if db.query(ScheduledWorkout).filter_by(user_id=target_user_id, workout_id=workout_id, scheduled_date=target_date).first():
+                skipped_dates.append(target_date)
+            else:
+                db.add(ScheduledWorkout(
+                    user_id=target_user_id,
+                    workout_id=workout_id,
+                    scheduled_date=target_date,
+                    status='Scheduled',
+                ))
+                scheduled.append(ScheduledWorkoutOut(workout_id=workout_id, scheduled_date=target_date, status='Scheduled'))
+
+    db.commit()
+    return RecurringScheduleOut(scheduled=scheduled, skipped_dates=skipped_dates)
+
+
+# Update a scheduled workout's status and optionally log performance (weight/reps/distance).
+# Only the user whose calendar it is can mark it complete.
+@router.patch("/{workout_id}/schedule/{scheduled_date}", response_model=ScheduledWorkoutOut)
+def log_scheduled_workout(
+    workout_id: int,
+    scheduled_date: date,
+    data: WorkoutLogIn,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    scheduled = db.query(ScheduledWorkout).filter_by(
+        user_id=current_user.user_id,
+        workout_id=workout_id,
+        scheduled_date=scheduled_date,
+    ).first()
+    if not scheduled:
+        raise HTTPException(status_code=404, detail="Scheduled workout not found")
+
+    scheduled.status = data.status
+
+    if data.status == 'Completed' and data.set_results:
+        client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+        if not client:
+            raise HTTPException(status_code=400, detail="Only clients can log workout performance")
+        log = WorkoutLog(workout_id=workout_id, client_id=client.client_id)
+        db.add(log)
+        db.flush()  # populate log.workout_log_id before inserting set results
+        for sr in data.set_results:
+            db.add(SetResult(
+                workout_log_id=log.workout_log_id,
+                exercise_id=sr.exercise_id,
+                actual_weight=sr.actual_weight,
+                actual_value=sr.actual_value,
+            ))
+
+    db.commit()
+    return ScheduledWorkoutOut(workout_id=workout_id, scheduled_date=scheduled_date, status=data.status)
+
+
+# Move a scheduled workout to a different date.
+# Replaces the old row (since the date is part of the PK) and preserves the status.
+@router.patch("/{workout_id}/schedule/{scheduled_date}/reschedule", response_model=ScheduledWorkoutOut)
+def reschedule_workout(
+    workout_id: int,
+    scheduled_date: date,
+    data: RescheduleIn,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    scheduled = db.query(ScheduledWorkout).filter_by(
+        user_id=current_user.user_id,
+        workout_id=workout_id,
+        scheduled_date=scheduled_date,
+    ).first()
+    if not scheduled:
+        raise HTTPException(status_code=404, detail="Scheduled workout not found")
+
+    if data.new_date == scheduled_date:
+        return ScheduledWorkoutOut(workout_id=workout_id, scheduled_date=scheduled_date, status=scheduled.status)
+
+    if db.query(ScheduledWorkout).filter_by(user_id=current_user.user_id, workout_id=workout_id, scheduled_date=data.new_date).first():
+        raise HTTPException(status_code=409, detail="Workout already scheduled on the target date")
+
+    old_status = scheduled.status
+    db.delete(scheduled)
+    db.flush()
+    db.add(ScheduledWorkout(
+        user_id=current_user.user_id,
+        workout_id=workout_id,
+        scheduled_date=data.new_date,
+        status=old_status,
+    ))
+    db.commit()
+    return ScheduledWorkoutOut(workout_id=workout_id, scheduled_date=data.new_date, status=old_status)
 
 
 # Remove a specific workout from the calendar by date
