@@ -19,6 +19,6 @@ class Notification(Base):
     message         = Column(Text, nullable=False)
     is_read         = Column(Boolean, nullable=False, default=False)
     created_at      = Column(DateTime(timezone=True), nullable=False, default=_now)
-    last_updated    = Column(DateTime(timezone=True), nullable=False, default=_now)
+    last_updated    = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
 
     user = relationship('User')
