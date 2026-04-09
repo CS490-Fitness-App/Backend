@@ -10,7 +10,7 @@ from models.user import User, Coach, CoachStatus, Client
 from models.coach import ClientCoach, CoachCertification, CoachAvailability, CoachSessionFormat, coach_specialities
 from models.user import SessionFormat
 from models.log import Goal, GoalType
-from models.notification import Notification
+from routers.notifications import notify
 from models.payment import Card
 
 from schemas.coach import CoachOut, CoachRegisterIn, CoachClientsOut, ClientEntry
@@ -230,14 +230,9 @@ def send_request(
     #get client's name for notification
     client_name = f"{current_user.first_name} {current_user.last_name}"
 
-    #notify the coach by adding notification to Notifications table
-    notification = Notification(
-        user_id=query.user_id,
-        message=f"You have a new coaching request from client {client_name}."
-    )
-    db.add(notification)
+    #notify the coach
+    notify(db, user_id=query.user_id, message=f"You have a new coaching request from client {client_name}.")
     db.commit()
-    db.refresh(notification)
 
     return {"message": "Request sent successfully."}
 
@@ -266,15 +261,10 @@ def accept_request(
     #get coach's name for notification
     coach_name = f"{current_user.first_name} {current_user.last_name}"
 
-    #notify the client by adding notification to Notifications table
+    #notify the client
     client = db.query(Client).filter(Client.client_id == client_id).first()
-    notification = Notification(
-        user_id=client.user_id,
-        message=f"Your coaching request to {coach_name} has been accepted."
-    )
-    db.add(notification)
+    notify(db, user_id=client.user_id, message=f"Your coaching request to {coach_name} has been accepted.")
     db.commit()
-    db.refresh(notification)
 
     return {"message": "Request accepted successfully."}
 
@@ -303,15 +293,10 @@ def decline_request(
     #get coach's name for notification
     coach_name = f"{current_user.first_name} {current_user.last_name}"
 
-    #notify the client by adding notification to Notifications table
+    #notify the client
     client = db.query(Client).filter(Client.client_id == client_id).first()
-    notification = Notification(
-        user_id=client.user_id,
-        message=f"Your coaching request to {coach_name} has been declined."
-    )
-    db.add(notification)
+    notify(db, user_id=client.user_id, message=f"Your coaching request to {coach_name} has been declined.")
     db.commit()
-    db.refresh(notification)
 
     return {"message": "Request declined successfully."}
 
@@ -341,15 +326,10 @@ def end_contract(
         relationship.status_name = 'Terminated'
         db.commit()
 
-        #notify the coach by adding notification to Notifications table
+        #notify the coach
         coach = db.query(Coach).filter(Coach.coach_id == coach_id).first()
-        notification = Notification(
-            user_id=coach.user_id,
-            message=f"{current_user.first_name} {current_user.last_name} terminated coaching contract."
-        )
-        db.add(notification)
+        notify(db, user_id=coach.user_id, message=f"{current_user.first_name} {current_user.last_name} terminated coaching contract.")
         db.commit()
-        db.refresh(notification)
 
         return {"message": "Contract terminated successfully."}
     
@@ -372,16 +352,11 @@ def end_contract(
         relationship.status_name = 'Terminated'
         db.commit()
 
-        #notify the Client by adding notification to Notifications table
+        #notify the client
         client = db.query(Client).filter(Client.client_id == client_id).first()
-        notification = Notification(
-            user_id=client.user_id,
-            message=f"{current_user.first_name} {current_user.last_name} terminated coaching contract."
-        )
-
-        db.add(notification)
+        notify(db, user_id=client.user_id, message=f"{current_user.first_name} {current_user.last_name} terminated coaching contract.")
         db.commit()
-        db.refresh(notification)
+
         return {"message": "Contract terminated successfully."}
     
     else:

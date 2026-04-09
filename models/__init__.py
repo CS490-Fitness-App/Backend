@@ -9,5 +9,5 @@ from .log          import GoalType, Goal, MoodType, DailySurvey, WeightLog, Audi
 from .payment      import CardType, Card, CoachPaymentHistory
 from .notification import Notification
 from .review       import Review, Report
-from .chat         import Chat
+from .chat         import Chat, Conversation, Message
 from .notebook     import Notebook
