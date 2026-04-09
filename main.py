@@ -14,7 +14,6 @@ from routers.dashboard import router as dashboard_router
 from routers.exercises import router as exercises_router
 from routers.workouts import router as workouts_router
 from routers.admin import router as admin_router
-from routers.dashboard import router as dashboard_router
 
 app = FastAPI(title="Primal Fitness Backend")
 

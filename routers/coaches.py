@@ -200,6 +200,8 @@ def send_request(
     current_user=Depends(require_client)
 ):
     #get client_id from current_user
+    if not current_user.client:
+        raise HTTPException(status_code=400, detail="Please complete your profile survey before requesting a coach.")
     client_id = current_user.client.client_id
 
     #check whether request is valid and return error if necessary
@@ -386,6 +388,17 @@ def end_contract(
     
     else:
         raise HTTPException(status_code=403, detail="Invalid user role for Client-Coach relationship termination.")
+
+
+@router.get("/me", response_model=CoachOut)
+def get_my_coach_profile(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_coach),
+):
+    coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+    if not coach:
+        raise HTTPException(status_code=404, detail="Coach profile not found.")
+    return _build_coach_out(coach, db)
 
 
 @router.get("/{coach_id}/clients", response_model=CoachClientsOut)
