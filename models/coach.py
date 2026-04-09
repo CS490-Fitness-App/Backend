@@ -12,28 +12,28 @@ def _now():
 
 # Junction table: coaches ↔ goal types / specialities (no extra columns)
 coach_specialities = Table(
-    'Coach_Specialities',
+    'coach_specialities',
     Base.metadata,
-    Column('coach_id',     Integer, ForeignKey('Coaches.coach_id',         ondelete='CASCADE'), primary_key=True),
-    Column('goal_type_id', Integer, ForeignKey('Goal_Types.goal_type_id',  ondelete='CASCADE'), primary_key=True),
+    Column('coach_id',     Integer, ForeignKey('coaches.coach_id',         ondelete='CASCADE'), primary_key=True),
+    Column('goal_type_id', Integer, ForeignKey('goal_types.goal_type_id',  ondelete='CASCADE'), primary_key=True),
 )
 
 
 class CoachCertification(Base):
-    __tablename__ = 'Coach_Certifications'
+    __tablename__ = 'coach_certifications'
 
     certification_id   = Column(Integer, primary_key=True, autoincrement=True)
-    coach_id           = Column(Integer, ForeignKey('Coaches.coach_id', ondelete='CASCADE'), nullable=False)
+    coach_id           = Column(Integer, ForeignKey('coaches.coach_id', ondelete='CASCADE'), nullable=False)
     certification_name = Column(String(255), nullable=False)
     created_at         = Column(DateTime(timezone=True), nullable=False, default=_now)
 
 
 class CoachAvailability(Base):
-    __tablename__ = 'Coach_Availability'
+    __tablename__ = 'coach_availability'
     __table_args__ = (UniqueConstraint('coach_id', 'day_of_week', name='uq_coach_day'),)
 
     availability_id = Column(Integer, primary_key=True, autoincrement=True)
-    coach_id        = Column(Integer, ForeignKey('Coaches.coach_id', ondelete='CASCADE'), nullable=False)
+    coach_id        = Column(Integer, ForeignKey('coaches.coach_id', ondelete='CASCADE'), nullable=False)
     day_of_week     = Column(Enum('MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'), nullable=False)
     start_time      = Column(Time, nullable=False)
     end_time        = Column(Time, nullable=False)
@@ -41,11 +41,18 @@ class CoachAvailability(Base):
     last_updated    = Column(DateTime(timezone=True), nullable=False, default=_now)
 
 
-class ClientCoach(Base):
-    __tablename__ = 'Client_Coach'
+class CoachSessionFormat(Base):
+    __tablename__ = 'coach_session_formats'
 
-    client_id    = Column(Integer, ForeignKey('Clients.client_id', ondelete='CASCADE'), primary_key=True)
-    coach_id     = Column(Integer, ForeignKey('Coaches.coach_id',  ondelete='CASCADE'), primary_key=True)
+    coach_id          = Column(Integer, ForeignKey('coaches.coach_id',                       ondelete='CASCADE'), primary_key=True)
+    session_format_id = Column(Integer, ForeignKey('session_formats.session_format_id',      ondelete='CASCADE'), primary_key=True)
+
+
+class ClientCoach(Base):
+    __tablename__ = 'client_coach'
+
+    client_id    = Column(Integer, ForeignKey('clients.client_id', ondelete='CASCADE'), primary_key=True)
+    coach_id     = Column(Integer, ForeignKey('coaches.coach_id',  ondelete='CASCADE'), primary_key=True)
     status_name  = Column(Enum('Pending', 'Active', 'Terminated', 'Declined'), nullable=False)
     created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated = Column(DateTime(timezone=True), nullable=False, default=_now)

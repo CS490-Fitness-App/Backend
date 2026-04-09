@@ -61,9 +61,37 @@ class WorkoutDetailOut(WorkoutOut):
 
 class ScheduledWorkoutIn(BaseModel):
     scheduled_date: date
+    client_user_id: Optional[int] = None    # coaches only: schedule on behalf of a client
 
 
 class ScheduledWorkoutOut(BaseModel):
     workout_id: int
     scheduled_date: date
     status: Optional[str] = None
+
+
+# --- Logging schemas ---
+
+class SetResultIn(BaseModel):
+    exercise_id: int
+    actual_weight: Optional[float] = None   # kg / lbs
+    actual_value: Optional[float] = None    # reps / distance / time
+
+
+class WorkoutLogIn(BaseModel):
+    status: str                                     # Completed | Skipped | etc.
+    set_results: Optional[List[SetResultIn]] = []   # only needed when Completed
+
+
+# --- Calendar schemas ---
+
+class CalendarWorkoutOut(BaseModel):
+    scheduled_date: date
+    status: Optional[str] = None
+    workout_id: int
+    name: str
+    image_url: Optional[str] = None
+    experience_level: Optional[str] = None
+    goal_type: Optional[str] = None
+    workout_time_mins: Optional[int] = None
+    exercises: List[WorkoutExerciseOut] = []

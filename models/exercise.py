@@ -13,48 +13,48 @@ def _now():
 
 # Junction table: exercises ↔ muscle groups (no extra columns)
 exercise_muscles = Table(
-    'Exercise_Muscles',
+    'exercise_muscles',
     Base.metadata,
-    Column('exercise_id',     Integer, ForeignKey('Exercises.exercise_id',         ondelete='CASCADE'), primary_key=True),
-    Column('muscle_group_id', Integer, ForeignKey('Muscle_Groups.muscle_group_id', ondelete='CASCADE'), primary_key=True),
+    Column('exercise_id',     Integer, ForeignKey('exercises.exercise_id',         ondelete='CASCADE'), primary_key=True),
+    Column('muscle_group_id', Integer, ForeignKey('muscle_groups.muscle_group_id', ondelete='CASCADE'), primary_key=True),
 )
 
 
 class ExerciseCategory(Base):
-    __tablename__ = 'Exercise_Categories'
+    __tablename__ = 'exercise_categories'
 
     category_id   = Column(Integer, primary_key=True, autoincrement=True)
     category_name = Column(String(50), nullable=False, unique=True)
 
 
 class MuscleGroup(Base):
-    __tablename__ = 'Muscle_Groups'
+    __tablename__ = 'muscle_groups'
 
     muscle_group_id   = Column(Integer, primary_key=True, autoincrement=True)
     muscle_group_name = Column(String(100), nullable=False, unique=True)
 
 
 class ExperienceLevel(Base):
-    __tablename__ = 'Experience_Levels'
+    __tablename__ = 'experience_levels'
 
     experience_level_id   = Column(Integer, primary_key=True, autoincrement=True)
     experience_level_name = Column(String(50), nullable=False, unique=True)
 
 
 class Unit(Base):
-    __tablename__ = 'Units'
+    __tablename__ = 'units'
 
     unit_id   = Column(Integer, primary_key=True, autoincrement=True)
     unit_name = Column(String(50), nullable=False, unique=True)
 
 
 class Exercise(Base):
-    __tablename__ = 'Exercises'
+    __tablename__ = 'exercises'
 
     exercise_id         = Column(Integer, primary_key=True, autoincrement=True)
     name                = Column(String(255), nullable=False)
-    category_id         = Column(Integer, ForeignKey('Exercise_Categories.category_id'), nullable=False)
-    experience_level_id = Column(Integer, ForeignKey('Experience_Levels.experience_level_id'))
+    category_id         = Column(Integer, ForeignKey('exercise_categories.category_id'), nullable=False)
+    experience_level_id = Column(Integer, ForeignKey('experience_levels.experience_level_id'))
     equipment           = Column(String(255))
     instructions        = Column(Text)
     tips                = Column(Text)

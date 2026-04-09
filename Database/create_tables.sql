@@ -281,15 +281,17 @@ CREATE TABLE Workout_Logs (
     CONSTRAINT fk_workout_logs_client  FOREIGN KEY (client_id)  REFERENCES Clients(client_id)  ON DELETE CASCADE
 );
 
--- Set_Results: Logs actual weight and value for each completed set during a workout.
+-- Set_Results: Logs actual weight and value for each completed set during a workout, linked to the specific exercise performed.
 CREATE TABLE Set_Results (
     set_results_id INT AUTO_INCREMENT PRIMARY KEY,
     workout_log_id INT NOT NULL,
+    exercise_id    INT,
     actual_weight  DECIMAL(8,2),
     actual_value   DECIMAL(8,2),
     created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
     last_updated   TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT fk_set_results_workout_log FOREIGN KEY (workout_log_id) REFERENCES Workout_Logs(workout_log_id) ON DELETE CASCADE
+    CONSTRAINT fk_set_results_workout_log FOREIGN KEY (workout_log_id) REFERENCES Workout_Logs(workout_log_id) ON DELETE CASCADE,
+    CONSTRAINT fk_set_results_exercise    FOREIGN KEY (exercise_id)    REFERENCES Exercises(exercise_id)    ON DELETE CASCADE
 );
 
 -- Weight_Logs: Tracks user weight changes over time in grams for detailed progress monitoring.
@@ -853,7 +855,7 @@ AFTER INSERT ON Set_Results FOR EACH ROW
 BEGIN
     INSERT INTO Audit_Log (table_name, record_id, action, changed_by, new_values)
     VALUES ('Set_Results', NEW.set_results_id, 'INSERT', @current_user_id,
-        JSON_OBJECT('workout_log_id', NEW.workout_log_id, 'actual_weight', NEW.actual_weight, 'actual_value', NEW.actual_value));
+        JSON_OBJECT('workout_log_id', NEW.workout_log_id, 'exercise_id', NEW.exercise_id, 'actual_weight', NEW.actual_weight, 'actual_value', NEW.actual_value));
 END$$
 
 -- Logs set result corrections to audit trail.

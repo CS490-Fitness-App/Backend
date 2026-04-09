@@ -12,18 +12,18 @@ def _now():
 
 
 class GoalType(Base):
-    __tablename__ = 'Goal_Types'
+    __tablename__ = 'goal_types'
 
     goal_type_id   = Column(Integer, primary_key=True, autoincrement=True)
     goal_type_name = Column(String(50), nullable=False, unique=True)
 
 
 class Goal(Base):
-    __tablename__ = 'Goals'
+    __tablename__ = 'goals'
 
     goal_id      = Column(Integer, primary_key=True, autoincrement=True)
-    user_id      = Column(Integer, ForeignKey('Users.user_id',          ondelete='CASCADE'), nullable=False)
-    goal_type_id = Column(Integer, ForeignKey('Goal_Types.goal_type_id'), nullable=False)
+    user_id      = Column(Integer, ForeignKey('users.user_id',          ondelete='CASCADE'), nullable=False)
+    goal_type_id = Column(Integer, ForeignKey('goal_types.goal_type_id'), nullable=False)
     created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated = Column(DateTime(timezone=True), nullable=False, default=_now)
 
@@ -31,20 +31,20 @@ class Goal(Base):
 
 
 class MoodType(Base):
-    __tablename__ = 'Mood_Types'
+    __tablename__ = 'mood_types'
 
     mood_type_id   = Column(Integer, primary_key=True, autoincrement=True)
     mood_type_name = Column(String(20), nullable=False, unique=True)
 
 
 class DailySurvey(Base):
-    __tablename__ = 'Daily_Surveys'
+    __tablename__ = 'daily_surveys'
     __table_args__ = (UniqueConstraint('user_id', 'survey_date', name='uq_survey_user_date'),)
 
     survey_id       = Column(Integer, primary_key=True, autoincrement=True)
-    user_id         = Column(Integer, ForeignKey('Users.user_id', ondelete='CASCADE'), nullable=False)
+    user_id         = Column(Integer, ForeignKey('users.user_id', ondelete='CASCADE'), nullable=False)
     survey_date     = Column(Date, nullable=False)
-    mood_type_id    = Column(Integer, ForeignKey('Mood_Types.mood_type_id'), nullable=False)
+    mood_type_id    = Column(Integer, ForeignKey('mood_types.mood_type_id'), nullable=False)
     energy_level    = Column(SmallInteger)      # 1-10
     sleep_hours     = Column(Numeric(4, 1))     # e.g. 7.5
     step_count      = Column(Integer)
@@ -59,23 +59,23 @@ class DailySurvey(Base):
 
 
 class WeightLog(Base):
-    __tablename__ = 'Weight_Logs'
+    __tablename__ = 'weight_logs'
 
     weight_log_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id       = Column(Integer, ForeignKey('Users.user_id', ondelete='CASCADE'), nullable=False)
+    user_id       = Column(Integer, ForeignKey('users.user_id', ondelete='CASCADE'), nullable=False)
     weight        = Column(Integer, nullable=False)     # grams
     created_at    = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated  = Column(DateTime(timezone=True), nullable=False, default=_now)
 
 
 class AuditLog(Base):
-    __tablename__ = 'Audit_Log'
+    __tablename__ = 'audit_log'
 
     audit_id   = Column(Integer, primary_key=True, autoincrement=True)
     table_name = Column(String(64), nullable=False)
     record_id  = Column(Integer, nullable=False)
     action     = Column(Enum('INSERT', 'UPDATE', 'DELETE'), nullable=False)
-    changed_by = Column(Integer, ForeignKey('Users.user_id', ondelete='SET NULL'))
+    changed_by = Column(Integer, ForeignKey('users.user_id', ondelete='SET NULL'))
     old_values = Column(JSON)
     new_values = Column(JSON)
     changed_at = Column(DateTime(timezone=True), nullable=False, default=_now)

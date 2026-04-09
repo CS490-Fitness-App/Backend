@@ -4,7 +4,7 @@
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from enum import Enum
-from datetime import time
+from datetime import time, datetime
 
 # Enum matching the day_of_week ENUM in Coach_Availability table
 class DayOfWeek(str, Enum):
@@ -71,3 +71,19 @@ class CoachOut(BaseModel):
     specialties:         Optional[list[str]]
     certifications:      Optional[list[str]]
     availability:        Optional[list[str]]
+
+
+class ClientEntry(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    client_id:       int
+    first_name:      str
+    last_name:       str
+    profile_picture: Optional[str]
+    status:          str
+    since:           datetime   # ClientCoach.created_at
+
+
+class CoachClientsOut(BaseModel):
+    active_clients:   list[ClientEntry]
+    pending_requests: list[ClientEntry]

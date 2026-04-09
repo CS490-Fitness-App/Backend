@@ -5,15 +5,17 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from core.database import get_db
-from dependencies.rbac import require_client
+from dependencies.rbac import require_client, require_coach, get_current_user
 from models.user import User, Coach, CoachStatus, Client
-from models.coach import ClientCoach, CoachCertification, CoachAvailability, coach_specialities
+from models.coach import ClientCoach, CoachCertification, CoachAvailability, CoachSessionFormat, coach_specialities
+from models.user import SessionFormat
 from models.log import Goal, GoalType
 from models.notification import Notification
+from models.payment import Card
 
-from schemas.coach import CoachOut, CoachRegisterIn
+from schemas.coach import CoachOut, CoachRegisterIn, CoachClientsOut, ClientEntry
 
-router = APIRouter(prefix="/coaches", tags=["coaches"])
+router = APIRouter(prefix="/coaches", tags=["coaches"], redirect_slashes=False)
 
 
 # Helper to build CoachOut from a Coach ORM object
@@ -90,13 +92,17 @@ def register_coach(
         is_nutritionist=data.is_nutritionist,
         years_of_experience=data.years_of_experience,
         max_clients=data.max_clients,
-        session_format=data.session_format
     )
     db.add(coach)
 
     # flush sends the INSERT to the DB so SQLAlchemy assigns coach.coach_id,
     # but does NOT commit — everything is still inside one transaction.
     db.flush()
+
+    # add session format to Coach_Session_Formats junction table
+    sf = db.query(SessionFormat).filter(SessionFormat.session_format_name == data.session_format).first()
+    if sf:
+        db.add(CoachSessionFormat(coach_id=coach.coach_id, session_format_id=sf.session_format_id))
 
     # adds certs row by row into Coach_Certifications table
     for cert_name in data.certifications:
@@ -163,10 +169,16 @@ def browse_coaches(
     if max_rate is not None:
         query = query.filter(Coach.hourly_rate <= max_rate)
     if session_format:
-        if session_format == 'Virtual':
-            query = query.filter(Coach.session_formats.in_(['Virtual', 'Both']))
-        elif session_format == 'In-Person':
-            query = query.filter(Coach.session_formats.in_(['In-Person', 'Both']))
+        if session_format in ('Virtual', 'In-Person'):
+            format_names = [session_format, 'Both']
+        else:
+            format_names = [session_format]
+        query = (
+            query
+            .join(CoachSessionFormat, CoachSessionFormat.coach_id == Coach.coach_id)
+            .join(SessionFormat, SessionFormat.session_format_id == CoachSessionFormat.session_format_id)
+            .filter(SessionFormat.session_format_name.in_(format_names))
+        )
     
     # Filter by specialty requires joining coach_specialities
     if specialty:
@@ -178,7 +190,7 @@ def browse_coaches(
         )
 
     coaches = query.distinct().all()
-    return coaches
+    return [_build_coach_out(coach, db) for coach in coaches]
 
 # Send coaching request from client to coach
 @router.post("/request")
@@ -204,6 +216,11 @@ def send_request(
     if existing_relationship:
         raise HTTPException(status_code=409, detail="A request or contract already exists between this client and coach.")
     
+    #require a saved payment method before allowing a contract request
+    has_payment = db.query(Card).filter_by(user_id=current_user.user_id).first()
+    if not has_payment:
+        raise HTTPException(status_code=402, detail="A saved payment method is required before submitting a contract request.")
+
     #if valid add pending request to ClientCoach table and return success message
     new_request = ClientCoach(client_id=client_id, coach_id=coach_id, status_name='Pending')
     db.add(new_request)
@@ -215,7 +232,7 @@ def send_request(
 
     #notify the coach by adding notification to Notifications table
     notification = Notification(
-        user_id=coach_id,
+        user_id=query.user_id,
         message=f"You have a new coaching request from client {client_name}."
     )
     db.add(notification)
@@ -228,7 +245,7 @@ def send_request(
 def accept_request(
     client_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(require_client)
+    current_user=Depends(require_coach)
 ):
     #get coach_id from current_user
     coach_id = current_user.coach.coach_id
@@ -250,8 +267,9 @@ def accept_request(
     coach_name = f"{current_user.first_name} {current_user.last_name}"
 
     #notify the client by adding notification to Notifications table
+    client = db.query(Client).filter(Client.client_id == client_id).first()
     notification = Notification(
-        user_id=client_id,
+        user_id=client.user_id,
         message=f"Your coaching request to {coach_name} has been accepted."
     )
     db.add(notification)
@@ -264,7 +282,7 @@ def accept_request(
 def decline_request(
     client_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(require_client)
+    current_user=Depends(require_coach)
 ):
     #get coach_id from current_user
     coach_id = current_user.coach.coach_id
@@ -286,8 +304,9 @@ def decline_request(
     coach_name = f"{current_user.first_name} {current_user.last_name}"
 
     #notify the client by adding notification to Notifications table
+    client = db.query(Client).filter(Client.client_id == client_id).first()
     notification = Notification(
-        user_id=client_id,
+        user_id=client.user_id,
         message=f"Your coaching request to {coach_name} has been declined."
     )
     db.add(notification)
@@ -301,7 +320,7 @@ def decline_request(
 def end_contract(
     other_user_id: int = Query(..., description="ID of the other party in the contract (coach or client)"),
     db: Session = Depends(get_db),
-    current_user=Depends(require_client)
+    current_user=Depends(get_current_user)
 ):
     #check if current_user is a Client
     if current_user.role == 'client':
@@ -323,8 +342,9 @@ def end_contract(
         db.commit()
 
         #notify the coach by adding notification to Notifications table
+        coach = db.query(Coach).filter(Coach.coach_id == coach_id).first()
         notification = Notification(
-            user_id=other_user_id,
+            user_id=coach.user_id,
             message=f"{current_user.first_name} {current_user.last_name} terminated coaching contract."
         )
         db.add(notification)
@@ -353,8 +373,9 @@ def end_contract(
         db.commit()
 
         #notify the Client by adding notification to Notifications table
+        client = db.query(Client).filter(Client.client_id == client_id).first()
         notification = Notification(
-            user_id=client_id,
+            user_id=client.user_id,
             message=f"{current_user.first_name} {current_user.last_name} terminated coaching contract."
         )
 
@@ -365,3 +386,42 @@ def end_contract(
     
     else:
         raise HTTPException(status_code=403, detail="Invalid user role for Client-Coach relationship termination.")
+
+
+@router.get("/{coach_id}/clients", response_model=CoachClientsOut)
+def get_coach_clients(
+    coach_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_coach),
+):
+    if current_user.coach.coach_id != coach_id:
+        raise HTTPException(status_code=403, detail="You are not authorized to view this coach's clients.")
+
+    rows = (
+        db.query(ClientCoach, Client, User)
+        .join(Client, Client.client_id == ClientCoach.client_id)
+        .join(User, User.user_id == Client.user_id)
+        .filter(
+            ClientCoach.coach_id == coach_id,
+            ClientCoach.status_name.in_(["Active", "Pending"]),
+        )
+        .all()
+    )
+
+    active_clients   = []
+    pending_requests = []
+    for cc, client, user in rows:
+        entry = ClientEntry(
+            client_id=client.client_id,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            profile_picture=user.profile_picture,
+            status=cc.status_name,
+            since=cc.created_at,
+        )
+        if cc.status_name == "Active":
+            active_clients.append(entry)
+        else:
+            pending_requests.append(entry)
+
+    return CoachClientsOut(active_clients=active_clients, pending_requests=pending_requests)
