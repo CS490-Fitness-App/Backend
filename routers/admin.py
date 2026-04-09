@@ -117,3 +117,49 @@ def reject_coach_application(
         coach_id=coach.coach_id,
         status="Rejected",
     )
+
+
+@router.post("/coaches/{coach_id}/suspend", response_model=AdminCoachDecisionOut)
+def suspend_coach_account(
+    coach_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    coach = _get_coach_or_404(coach_id, db)
+    suspended_status = _get_status_or_404(db, "Suspended")
+
+    if coach.status.status_name == "Suspended":
+        raise HTTPException(status_code=409, detail="Coach account is already suspended")
+
+    coach.status_id = suspended_status.status_id
+    coach.accepting_clients = False
+    db.commit()
+
+    return AdminCoachDecisionOut(
+        message="Coach account suspended",
+        coach_id=coach.coach_id,
+        status="Suspended",
+    )
+
+
+@router.post("/coaches/{coach_id}/reactivate", response_model=AdminCoachDecisionOut)
+def reactivate_coach_account(
+    coach_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    coach = _get_coach_or_404(coach_id, db)
+    active_status = _get_status_or_404(db, "Active")
+
+    if coach.status.status_name == "Active":
+        raise HTTPException(status_code=409, detail="Coach account is already active")
+
+    coach.status_id = active_status.status_id
+    coach.accepting_clients = True
+    db.commit()
+
+    return AdminCoachDecisionOut(
+        message="Coach account reactivated",
+        coach_id=coach.coach_id,
+        status="Active",
+    )
