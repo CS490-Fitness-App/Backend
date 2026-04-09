@@ -81,7 +81,8 @@ class ClientEntry(BaseModel):
     last_name:       str
     profile_picture: Optional[str]
     status:          str
-    since:           datetime   # ClientCoach.created_at
+    since:           datetime           # when the hire request was sent (created_at)
+    active_since:    Optional[datetime] # when the contract was accepted (activated_at); None for pending
 
 
 class CoachClientsOut(BaseModel):
