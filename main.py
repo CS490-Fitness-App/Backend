@@ -6,7 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from routers.admin import router as admin_router
 from routers.auth import router as auth_router
+from routers.chat import router as chat_router
 from routers.payments import router as payments_router
 from routers.clients import router as clients_router
 from routers.coaches import router as coaches_router
@@ -25,7 +27,9 @@ app.add_middleware(
 	allow_headers=["*"],
 )
 
+app.include_router(admin_router)
 app.include_router(auth_router)
+app.include_router(chat_router)
 app.include_router(payments_router)
 app.include_router(clients_router)
 app.include_router(workouts_router)
