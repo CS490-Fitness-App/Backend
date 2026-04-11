@@ -21,9 +21,12 @@ class ExerciseOut(BaseModel):
     exercise_id: int
     name: str
     image_url: Optional[str] = None
+    video_url: Optional[str] = None
     experience_level: Optional[str] = None
     category: str
     equipment: Optional[str] = None
+    instructions: Optional[str] = None
+    tips: Optional[str] = None
     muscle_groups: List[str] = []
 
     model_config = {"from_attributes": True}

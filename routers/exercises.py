@@ -31,9 +31,12 @@ def _to_out(e: Exercise) -> ExerciseOut:
         exercise_id=e.exercise_id,
         name=e.name,
         image_url=e.image_url,
+        video_url=e.video_url,
         experience_level=e.experience_level.experience_level_name if e.experience_level else None,
         category=e.category.category_name,
         equipment=e.equipment,
+        instructions=e.instructions,
+        tips=e.tips,
         muscle_groups=[mg.muscle_group_name for mg in e.muscle_groups],
     )
 
