@@ -33,13 +33,13 @@ class ExerciseOut(BaseModel):
     name: str
     category_id: int
     image_url: Optional[str] = None
+    video_url: Optional[str] = None
     experience_level_id: Optional[int] = None
     experience_level: Optional[str] = None
     category: str
     equipment: Optional[str] = None
     instructions: Optional[str] = None
     tips: Optional[str] = None
-    video_url: Optional[str] = None
     muscle_group_ids: List[int] = []
     muscle_groups: List[str] = []
 

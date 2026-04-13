@@ -32,17 +32,17 @@ def _to_out(e: Exercise) -> ExerciseOut:
         name=e.name,
         category_id=e.category_id,
         image_url=e.image_url,
+        video_url=e.video_url,
         experience_level_id=e.experience_level_id,
         experience_level=e.experience_level.experience_level_name if e.experience_level else None,
         category=e.category.category_name,
         equipment=e.equipment,
         instructions=e.instructions,
         tips=e.tips,
-        video_url=e.video_url,
         muscle_group_ids=[mg.muscle_group_id for mg in e.muscle_groups],
         muscle_groups=[mg.muscle_group_name for mg in e.muscle_groups],
     )
-
+  
 
 def _get_exercise_or_404(exercise_id: int, db: Session) -> Exercise:
     exercise = _exercise_query(db).filter(Exercise.exercise_id == exercise_id).first()

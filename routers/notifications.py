@@ -51,6 +51,24 @@ def create_notification(
     )
 
 
+# GET /notifications/{user_id}/count — return unread count without marking as read
+@router.get("/{user_id}/count")
+def get_unread_count(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if current_user.user_id != user_id and current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="You can only view your own notifications.")
+
+    count = (
+        db.query(Notification)
+        .filter(Notification.user_id == user_id, Notification.is_read == False)
+        .count()
+    )
+    return {"unread_count": count}
+
+
 # GET /notifications/{user_id} — fetch notifications sorted unread first, then mark all as read
 @router.get("/{user_id}", response_model=list[NotificationOut])
 def get_notifications(
