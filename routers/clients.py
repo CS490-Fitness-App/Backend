@@ -89,3 +89,9 @@ def update_goals(
     for g in goals:
         db.refresh(g)
     return goals
+
+
+@router.get("/goal-types")
+def get_goal_types(db: Session = Depends(get_db)):
+    goal_types = db.query(GoalType).all()
+    return [{"goal_type_id": gt.goal_type_id, "goal_type_name": gt.goal_type_name} for gt in goal_types]

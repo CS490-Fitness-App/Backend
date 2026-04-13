@@ -200,6 +200,8 @@ def send_request(
     current_user=Depends(require_client)
 ):
     #get client_id from current_user
+    if not current_user.client:
+        raise HTTPException(status_code=400, detail="Please complete your profile survey before requesting a coach.")
     client_id = current_user.client.client_id
 
     #check whether request is valid and return error if necessary
@@ -254,8 +256,10 @@ def accept_request(
     if not relationship:
         raise HTTPException(status_code=404, detail="No pending request found between this client and coach.")
 
-    #update status to active and return success message
+    #update status to active and record when the contract started
+    from datetime import datetime, timezone
     relationship.status_name = 'Active'
+    relationship.activated_at = datetime.now(timezone.utc)
     db.commit()
 
     #get coach's name for notification
@@ -363,13 +367,24 @@ def end_contract(
         raise HTTPException(status_code=403, detail="Invalid user role for Client-Coach relationship termination.")
 
 
+@router.get("/me", response_model=CoachOut)
+def get_my_coach_profile(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_coach),
+):
+    coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+    if not coach:
+        raise HTTPException(status_code=404, detail="Coach profile not found.")
+    return _build_coach_out(coach, db)
+
+
 @router.get("/{coach_id}/clients", response_model=CoachClientsOut)
 def get_coach_clients(
     coach_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(require_coach),
 ):
-    if current_user.coach.coach_id != coach_id:
+    if not current_user.coach or current_user.coach.coach_id != coach_id:
         raise HTTPException(status_code=403, detail="You are not authorized to view this coach's clients.")
 
     rows = (
@@ -393,6 +408,7 @@ def get_coach_clients(
             profile_picture=user.profile_picture,
             status=cc.status_name,
             since=cc.created_at,
+            active_since=cc.activated_at,
         )
         if cc.status_name == "Active":
             active_clients.append(entry)
