@@ -8,6 +8,7 @@ from sqlalchemy import func
 from core.database import get_db
 from dependencies.rbac import get_current_user
 from models.coach import ClientCoach
+from models.review import Review
 from models.user import User, Client, Coach
 from models.workout import Workout, WorkoutLog, ScheduledWorkout, WorkoutPlan
 
@@ -67,19 +68,6 @@ def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(get
             .first()
         )
 
-    active_coach = None
-    if client:
-        active_coach = (
-            db.query(ClientCoach, Coach, User)
-            .join(Coach, Coach.coach_id == ClientCoach.coach_id)
-            .join(User, User.user_id == Coach.user_id)
-            .filter(
-                ClientCoach.client_id == client.client_id,
-                ClientCoach.status_name == "Active",
-            )
-            .first()
-        )
-
     full_name = "Client"
     if user:
         first_name = user.first_name or ""
@@ -95,19 +83,17 @@ def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(get
         log_date = latest_log.logged_at.strftime("%b %d, %Y")
         recent_activity = f"Last workout: {log_date}"
 
-    weight_lbs = round(client.weight / 453.592, 1) if client and client.weight else None
-    goal_weight_lbs = round(client.goal_weight / 453.592, 1) if client and client.goal_weight else None
-
     # Active coach for this client
     active_coach = None
     if client:
         cc = (
-            db.query(ClientCoach)
+            db.query(ClientCoach.coach_id, ClientCoach.status_name)
             .filter(ClientCoach.client_id == client.client_id, ClientCoach.status_name == "Active")
             .first()
         )
         if cc:
-            coach = db.query(Coach).filter(Coach.coach_id == cc.coach_id).first()
+            coach_id, relationship_status = cc
+            coach = db.query(Coach).filter(Coach.coach_id == coach_id).first()
             if coach:
                 coach_user = db.query(User).filter(User.user_id == coach.user_id).first()
                 avg_rating = db.query(func.avg(Review.rating)).filter(Review.coach_id == coach.coach_id).scalar()
@@ -123,7 +109,7 @@ def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(get
                     "last_name": coach_user.last_name if coach_user else "",
                     "specialization": specialization,
                     "avg_rating": round(float(avg_rating), 1) if avg_rating else None,
-                    "status": cc.status_name,
+                    "status": relationship_status,
                 }
     today_workout = scheduled_today[0].workout.name if scheduled_today else "No workout available."
     today_descriptor = f"{len(scheduled_today)} workout scheduled today" if scheduled_today else "Nothing scheduled for today"
@@ -141,9 +127,8 @@ def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(get
     coach_name = "No coach assigned"
     coach_status = "No active coach"
     if active_coach:
-        _, coach, coach_user = active_coach
-        coach_name = f"{coach_user.first_name or ''} {coach_user.last_name or ''}".strip() or coach_user.email
-        coach_status = "Accepting clients" if coach.accepting_clients else "Not accepting clients"
+        coach_name = f"{active_coach['first_name'] or ''} {active_coach['last_name'] or ''}".strip() or "No coach assigned"
+        coach_status = active_coach["status"]
 
     weight_descriptor = "No goal weight set"
     if current_weight_lb is not None and goal_weight_lb is not None:
@@ -181,7 +166,7 @@ def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(get
             for sw in scheduled_today
         ],
         "recent_activity": recent_activity,
-        "weight_lbs": weight_lbs,
-        "goal_weight_lbs": goal_weight_lbs,
+        "weight_lbs": current_weight_lb,
+        "goal_weight_lbs": goal_weight_lb,
         "active_coach": active_coach,
     }
