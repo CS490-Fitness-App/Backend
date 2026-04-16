@@ -55,4 +55,8 @@ class ClientCoach(Base):
     coach_id     = Column(Integer, ForeignKey('coaches.coach_id',  ondelete='CASCADE'), primary_key=True)
     status_name  = Column(Enum('Pending', 'Active', 'Terminated', 'Declined'), nullable=False)
     created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
+<<<<<<< Updated upstream
     last_updated = Column(DateTime(timezone=True), nullable=False, default=_now)
+=======
+    last_updated = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+>>>>>>> Stashed changes
