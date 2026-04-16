@@ -10,7 +10,7 @@ from core.database import get_db
 from dependencies.rbac import require_admin
 from models.exercise import Exercise, ExerciseCategory, ExperienceLevel, MuscleGroup
 from models.workout import WorkoutPlan
-from schemas.exercise import ExerciseIn, ExerciseOut
+from schemas.exercise import ExerciseIn, ExerciseLookupOption, ExerciseMetaOut, ExerciseOut
 
 router = APIRouter(prefix="/exercises", tags=["exercises"])
 
@@ -30,13 +30,19 @@ def _to_out(e: Exercise) -> ExerciseOut:
     return ExerciseOut(
         exercise_id=e.exercise_id,
         name=e.name,
+        category_id=e.category_id,
         image_url=e.image_url,
+        video_url=e.video_url,
+        experience_level_id=e.experience_level_id,
         experience_level=e.experience_level.experience_level_name if e.experience_level else None,
         category=e.category.category_name,
         equipment=e.equipment,
+        instructions=e.instructions,
+        tips=e.tips,
+        muscle_group_ids=[mg.muscle_group_id for mg in e.muscle_groups],
         muscle_groups=[mg.muscle_group_name for mg in e.muscle_groups],
     )
-
+  
 
 def _get_exercise_or_404(exercise_id: int, db: Session) -> Exercise:
     exercise = _exercise_query(db).filter(Exercise.exercise_id == exercise_id).first()
@@ -77,6 +83,28 @@ def _validate_exercise_payload(data: ExerciseIn, db: Session, exclude_exercise_i
 def list_exercises(db: Session = Depends(get_db)):
     exercises = _exercise_query(db).all()
     return [_to_out(e) for e in exercises]
+
+
+@router.get("/meta/options", response_model=ExerciseMetaOut)
+def get_exercise_meta(db: Session = Depends(get_db)):
+    categories = db.query(ExerciseCategory).order_by(ExerciseCategory.category_name.asc()).all()
+    experience_levels = db.query(ExperienceLevel).order_by(ExperienceLevel.experience_level_name.asc()).all()
+    muscle_groups = db.query(MuscleGroup).order_by(MuscleGroup.muscle_group_name.asc()).all()
+
+    return ExerciseMetaOut(
+        categories=[
+            ExerciseLookupOption(id=category.category_id, name=category.category_name)
+            for category in categories
+        ],
+        experience_levels=[
+            ExerciseLookupOption(id=level.experience_level_id, name=level.experience_level_name)
+            for level in experience_levels
+        ],
+        muscle_groups=[
+            ExerciseLookupOption(id=muscle_group.muscle_group_id, name=muscle_group.muscle_group_name)
+            for muscle_group in muscle_groups
+        ],
+    )
 
 
 @router.get("/{exercise_id}", response_model=ExerciseOut)
