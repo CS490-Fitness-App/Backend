@@ -37,13 +37,24 @@ def _get_or_404(workout_id: int, db: Session) -> Workout:
     return w
 
 
+def _can_view_workout(w: Workout, current_user) -> bool:
+    return w.creator_id == current_user.user_id or w.assigned_to == current_user.user_id
+
+
+def _require_workout_access(w: Workout, current_user):
+    if not _can_view_workout(w, current_user):
+        raise HTTPException(status_code=403, detail="Not authorized to view this workout")
+
+
 def _to_out(w: Workout) -> WorkoutOut:
     """Map a Workout ORM object to a WorkoutOut schema, resolving FK names."""
     return WorkoutOut(
         workout_id=w.workout_id,
         name=w.name,
         image_url=w.image_url,
+        experience_level_id=w.experience_level_id,
         experience_level=w.experience_level.experience_level_name if w.experience_level else None,
+        goal_type_id=w.goal_type_id,
         goal_type=w.goal_type.goal_type_name if w.goal_type else None,
         equipment_required=w.equipment_required,
         workout_time_mins=w.workout_time_mins,
@@ -72,6 +83,7 @@ def _get_exercises(workout_id: int, db: Session) -> List[WorkoutExerciseOut]:
             exercise_name=p.exercise.name,
             sets=p.sets,
             target_value=float(p.target_value) if p.target_value is not None else None,
+            unit_id=p.unit_id,
             unit_name=p.unit.unit_name,
             order_in_workout=p.order_in_workout,
             rest=p.rest,
@@ -96,7 +108,7 @@ def _insert_exercises(workout_id: int, exercises, db: Session):
 
 # --- Endpoints ---
 
-# Browse the full workout library
+# Browse workouts owned by the current user or assigned to them
 @router.get("", response_model=List[WorkoutOut])
 def list_workouts(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     workouts = (
@@ -104,6 +116,10 @@ def list_workouts(db: Session = Depends(get_db), current_user=Depends(get_curren
         .options(
             joinedload(Workout.experience_level),
             joinedload(Workout.goal_type),
+        )
+        .filter(
+            (Workout.creator_id == current_user.user_id) |
+            (Workout.assigned_to == current_user.user_id)
         )
         .all()
     )
@@ -168,6 +184,7 @@ def list_scheduled_workouts(
 @router.get("/{workout_id}", response_model=WorkoutDetailOut)
 def get_workout(workout_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     w = _get_or_404(workout_id, db)
+    _require_workout_access(w, current_user)
     return WorkoutDetailOut(**_to_out(w).model_dump(), exercises=_get_exercises(workout_id, db))
 
 
@@ -206,6 +223,7 @@ def update_workout(workout_id: int, data: WorkoutIn, db: Session = Depends(get_d
         raise HTTPException(status_code=400, detail="Duplicate exercise IDs in workout plan")
 
     w = _get_or_404(workout_id, db)
+    _require_workout_access(w, current_user)
     if w.creator_id != current_user.user_id:
         raise HTTPException(status_code=403, detail="Not authorized to edit this workout")
 
@@ -230,6 +248,7 @@ def update_workout(workout_id: int, data: WorkoutIn, db: Session = Depends(get_d
 @router.delete("/{workout_id}", status_code=204)
 def delete_workout(workout_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     w = _get_or_404(workout_id, db)
+    _require_workout_access(w, current_user)
     if w.creator_id != current_user.user_id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this workout")
     db.delete(w)
@@ -239,7 +258,8 @@ def delete_workout(workout_id: int, db: Session = Depends(get_db), current_user=
 # Bookmark a workout to the user's saved list
 @router.post("/{workout_id}/save", status_code=201)
 def save_workout(workout_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    _get_or_404(workout_id, db)
+    w = _get_or_404(workout_id, db)
+    _require_workout_access(w, current_user)
     if db.query(SavedWorkout).filter_by(user_id=current_user.user_id, workout_id=workout_id).first():
         raise HTTPException(status_code=409, detail="Workout already saved")
     db.add(SavedWorkout(user_id=current_user.user_id, workout_id=workout_id))
@@ -260,7 +280,7 @@ def unsave_workout(workout_id: int, db: Session = Depends(get_db), current_user=
 # Coaches can supply client_user_id to schedule on behalf of an active client.
 @router.post("/{workout_id}/schedule", response_model=ScheduledWorkoutOut, status_code=201)
 def schedule_workout(workout_id: int, data: ScheduledWorkoutIn, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    _get_or_404(workout_id, db)
+    w = _get_or_404(workout_id, db)
 
     target_user_id = current_user.user_id
 
@@ -278,6 +298,8 @@ def schedule_workout(workout_id: int, data: ScheduledWorkoutIn, db: Session = De
         if not active_rel:
             raise HTTPException(status_code=403, detail="No active coaching relationship with this client")
         target_user_id = data.client_user_id
+    else:
+        _require_workout_access(w, current_user)
 
     if db.query(ScheduledWorkout).filter_by(user_id=target_user_id, workout_id=workout_id, scheduled_date=data.scheduled_date).first():
         raise HTTPException(status_code=409, detail="Workout already scheduled for this date")

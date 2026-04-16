@@ -78,11 +78,11 @@ DELIMITER ;
 
 
 -- -----------------------------------------------------------------------------
--- Migration 003: Create chat table
+-- Migration 003: Create chats table
 -- Represents a persistent conversation thread between one coach and one client.
 -- Used by GET /chats, POST /chats, GET /chats/:id/messages, POST /chats/:id/messages.
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS chat (
+CREATE TABLE IF NOT EXISTS chats (
     chat_id        INT       NOT NULL AUTO_INCREMENT,
     coach_user_id  INT       NOT NULL,
     client_user_id INT       NOT NULL,
@@ -90,10 +90,10 @@ CREATE TABLE IF NOT EXISTS chat (
     last_updated   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (chat_id),
     UNIQUE KEY uq_chat_pair    (coach_user_id, client_user_id),
-    KEY idx_chat_coach        (coach_user_id),
-    KEY idx_chat_client       (client_user_id),
-    CONSTRAINT fk_chat_coach  FOREIGN KEY (coach_user_id)  REFERENCES users (user_id) ON DELETE CASCADE,
-    CONSTRAINT fk_chat_client FOREIGN KEY (client_user_id) REFERENCES users (user_id) ON DELETE CASCADE
+    KEY idx_chats_coach        (coach_user_id),
+    KEY idx_chats_client       (client_user_id),
+    CONSTRAINT fk_chats_coach  FOREIGN KEY (coach_user_id)  REFERENCES users (user_id) ON DELETE CASCADE,
+    CONSTRAINT fk_chats_client FOREIGN KEY (client_user_id) REFERENCES users (user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 
@@ -115,6 +115,6 @@ CREATE TABLE IF NOT EXISTS messages (
     last_updated TIMESTAMP                                                           NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (message_id),
     KEY idx_messages_chat_sent (chat_id, sent_at),
-    CONSTRAINT fk_messages_chat   FOREIGN KEY (chat_id)   REFERENCES chat (chat_id) ON DELETE CASCADE,
+    CONSTRAINT fk_messages_chat   FOREIGN KEY (chat_id)   REFERENCES chats (chat_id) ON DELETE CASCADE,
     CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id) REFERENCES users (user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
