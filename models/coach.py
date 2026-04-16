@@ -57,3 +57,4 @@ class ClientCoach(Base):
     created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
     activated_at = Column(DateTime(timezone=True), nullable=True)
     last_updated = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
