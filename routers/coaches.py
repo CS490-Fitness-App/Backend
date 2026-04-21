@@ -2,7 +2,9 @@
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import Optional
+from models.review import Review
 
 from core.database import get_db
 from dependencies.rbac import require_client, require_coach, get_current_user
@@ -12,6 +14,7 @@ from models.user import SessionFormat
 from models.log import Goal, GoalType
 from routers.notifications import notify
 from models.payment import Card
+
 
 from schemas.coach import CoachOut, CoachRegisterIn, CoachClientsOut, ClientEntry
 
@@ -140,9 +143,10 @@ def browse_coaches(
     name: Optional[str] = Query(None, description="Search by coach's first or last name"),
     trainer: Optional[bool] = Query(None),
     nutritionist: Optional[bool] = Query(None),
-    specialty: Optional[str] = Query(None),
+    specialty: Optional[int] = Query(None),
     min_rate: Optional[float] = Query(None),
     max_rate: Optional[float] = Query(None),
+    avg_rating: Optional[float] = Query(None),
     session_format: Optional[str] = Query(None, description="Filter by session format: Virtual, In-Person, Both"),
     db: Session = Depends(get_db)
 ):
@@ -186,11 +190,18 @@ def browse_coaches(
             query
             .join(coach_specialities, coach_specialities.c.coach_id == Coach.coach_id)
             .join(GoalType, GoalType.goal_type_id == coach_specialities.c.goal_type_id)
-            .filter(GoalType.goal_type_name == specialty)
+            .filter(GoalType.goal_type_id == specialty)
         )
 
+    query = query.outerjoin(Review, Review.coach_id == Coach.coach_id)
+
+    if avg_rating:
+        query = query.group_by(Coach.coach_id)
+        query = query.having(func.avg(Review.rating) >= avg_rating)
+
     coaches = query.distinct().all()
-    return [_build_coach_out(coach, db) for coach in coaches]
+    return [ _build_coach_out(coach, db) for coach in coaches ]
+
 
 # Send coaching request from client to coach
 @router.post("/request")
