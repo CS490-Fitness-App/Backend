@@ -69,7 +69,7 @@ class WeightLog(Base):
 
 
 class AuditLog(Base):
-    __tablename__ = 'audit_log'
+    __tablename__ = 'Audit_Log'
 
     audit_id   = Column(Integer, primary_key=True, autoincrement=True)
     table_name = Column(String(64), nullable=False)

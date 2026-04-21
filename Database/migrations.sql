@@ -118,3 +118,30 @@ CREATE TABLE IF NOT EXISTS messages (
     CONSTRAINT fk_messages_chat   FOREIGN KEY (chat_id)   REFERENCES chats (chat_id) ON DELETE CASCADE,
     CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id) REFERENCES users (user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+-- -----------------------------------------------------------------------------
+-- Migration 005: Rename audit_log to Audit_Log on case-sensitive MySQL hosts
+-- Existing triggers write to Audit_Log, but some environments were created with
+-- a lowercase audit_log table name. On Linux/Aiven MySQL this breaks audited
+-- updates with "Table '...Audit_Log' doesn't exist".
+-- -----------------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS _mig005 $$
+CREATE PROCEDURE _mig005()
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'audit_log'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'Audit_Log'
+    ) THEN
+        RENAME TABLE audit_log TO Audit_Log;
+    END IF;
+END $$
+CALL _mig005() $$
+DROP PROCEDURE IF EXISTS _mig005 $$
+DELIMITER ;

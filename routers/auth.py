@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.auth0 import auth, bearer_scheme
@@ -17,6 +19,66 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 def _now():
     return datetime.now(timezone.utc)
+
+
+def _normalize_email(email: str | None) -> str | None:
+    if not email:
+        return None
+    normalized = email.strip().lower()
+    return normalized or None
+
+
+def _find_user_by_email(db: Session, email: str | None) -> User | None:
+    normalized_email = _normalize_email(email)
+    if not normalized_email:
+        return None
+    return db.query(User).filter(func.lower(User.email) == normalized_email).first()
+
+
+def _auth_user_out(user: User, is_new_user: bool) -> AuthUserOut:
+    return AuthUserOut(
+        user_id=user.user_id,
+        auth0_sub=user.auth0_sub,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        role=user.role,
+        is_new_user=is_new_user,
+    )
+
+
+def _commit_or_resolve_user(
+	db: Session,
+	*,
+	auth0_sub: str,
+	email: str | None,
+	is_new_user: bool,
+) -> AuthUserOut:
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        resolved_user = db.query(User).filter(User.auth0_sub == auth0_sub).first()
+        if not resolved_user:
+            resolved_user = _find_user_by_email(db, email)
+        if resolved_user:
+            db.refresh(resolved_user)
+            return _auth_user_out(resolved_user, False)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Account sync conflict. Please try logging in again.",
+        )
+
+    user = db.query(User).filter(User.auth0_sub == auth0_sub).first()
+    if not user:
+        user = _find_user_by_email(db, email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Account sync completed but user could not be reloaded.",
+        )
+    db.refresh(user)
+    return _auth_user_out(user, is_new_user)
 
 
 def _ensure_role_record(db: Session, user: User) -> None:
@@ -50,7 +112,7 @@ def create_account(
             detail="Account already exists. Call /auth/login instead.",
         )
 
-    email = payload.email or claims.get("email")
+    email = _normalize_email(payload.email or claims.get("email"))
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -69,88 +131,87 @@ def create_account(
     )
     db.add(user)
     db.flush()
-
-    _ensure_role_record(db, user)
-    db.commit()
-    db.refresh(user)
-
-    return AuthUserOut(
-        user_id=user.user_id,
-        auth0_sub=user.auth0_sub,
-        email=user.email,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        role=user.role,
+    return _commit_or_resolve_user(
+        db,
+        auth0_sub=auth0_sub,
+        email=email,
         is_new_user=True,
     )
 
 
 @router.post("/login", response_model=AuthUserOut)
 def login_or_sync_account(
-	payload: AuthRequestIn,
-	claims: dict = Depends(auth),
-	db: Session = Depends(get_db),
+    payload: AuthRequestIn,
+    claims: dict = Depends(auth),
+    db: Session = Depends(get_db),
 ):
-	# call whenever, will create user or retreive them
-	auth0_sub = claims["sub"]
-	user = db.query(User).filter(User.auth0_sub == auth0_sub).first()
+    # call whenever, will create user or retreive them
+    auth0_sub = claims["sub"]
+    user = db.query(User).filter(User.auth0_sub == auth0_sub).first()
 
-	if not user:
-		email = payload.email or claims.get("email")
-		if not email:
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="Email is required for first login.",
-			)
+    if not user:
+        email = _normalize_email(payload.email or claims.get("email"))
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email is required for first login.",
+            )
 
-		user = User(
-			auth0_sub=auth0_sub,
-			email=email,
-			first_name=payload.first_name,
-			last_name=payload.last_name,
-			profile_picture=payload.profile_picture,
-			role=payload.role,
-			created_at=_now(),
-			last_updated=_now(),
-		)
-		db.add(user)
-		db.flush()
-		_ensure_role_record(db, user)
-		db.commit()
-		db.refresh(user)
+        existing_email_user = _find_user_by_email(db, email)
+        if existing_email_user:
+            existing_email_user.auth0_sub = auth0_sub
+            existing_email_user.email = email
+            if payload.first_name and not existing_email_user.first_name:
+                existing_email_user.first_name = payload.first_name
+            if payload.last_name and not existing_email_user.last_name:
+                existing_email_user.last_name = payload.last_name
+            if payload.profile_picture and not existing_email_user.profile_picture:
+                existing_email_user.profile_picture = payload.profile_picture
+            existing_email_user.last_updated = _now()
+            return _commit_or_resolve_user(
+                db,
+                auth0_sub=auth0_sub,
+                email=email,
+                is_new_user=False,
+            )
 
-		return AuthUserOut(
-			user_id=user.user_id,
-			auth0_sub=user.auth0_sub,
-			email=user.email,
-			first_name=user.first_name,
-			last_name=user.last_name,
-			role=user.role,
-			is_new_user=True,
-		)
+        user = User(
+            auth0_sub=auth0_sub,
+            email=email,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            profile_picture=payload.profile_picture,
+            role=payload.role,
+            created_at=_now(),
+            last_updated=_now(),
+        )
+        db.add(user)
+        db.flush()
+        return _commit_or_resolve_user(
+            db,
+            auth0_sub=auth0_sub,
+            email=email,
+            is_new_user=True,
+        )
 
-	# Optional one-time profile fill
-	if payload.first_name and not user.first_name:
-		user.first_name = payload.first_name
-	if payload.last_name and not user.last_name:
-		user.last_name = payload.last_name
-	if payload.profile_picture and not user.profile_picture:
-		user.profile_picture = payload.profile_picture
+    # Optional one-time profile fill
+    normalized_email = _normalize_email(payload.email or claims.get("email"))
+    if normalized_email and user.email != normalized_email:
+        user.email = normalized_email
+    if payload.first_name and not user.first_name:
+        user.first_name = payload.first_name
+    if payload.last_name and not user.last_name:
+        user.last_name = payload.last_name
+    if payload.profile_picture and not user.profile_picture:
+        user.profile_picture = payload.profile_picture
 
-	user.last_updated = _now()
-	_ensure_role_record(db, user)
-	db.commit()
-	db.refresh(user)
-
-	return AuthUserOut(
-		user_id=user.user_id,
-		auth0_sub=user.auth0_sub,
-		email=user.email,
-		first_name=user.first_name,
-		last_name=user.last_name,
-		role=user.role,
-		is_new_user=False,
-	)
+    user.last_updated = _now()
+    return _commit_or_resolve_user(
+        db,
+        auth0_sub=auth0_sub,
+        email=user.email,
+        is_new_user=False,
+    )
 
 
 @router.get("/me", response_model=AuthUserOut)
