@@ -6,7 +6,7 @@
 --
 -- Usage:  mysql -u root -p primal_fitness < migrations.sql
 -- =============================================================================
-
+USE primal_fitness
 DELIMITER $$
 
 -- -----------------------------------------------------------------------------
@@ -144,4 +144,57 @@ BEGIN
 END $$
 CALL _mig005() $$
 DROP PROCEDURE IF EXISTS _mig005 $$
+DELIMITER ;
+
+
+-- -----------------------------------------------------------------------------
+-- Migration 006: Add finance tracking fields to coach_payment_history
+-- Adds real-world transaction metadata for admin financial reporting.
+-- Existing historical payments are backfilled as completed transactions with
+-- a 10% platform fee and 90% coach payout.
+-- -----------------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS _mig006 $$
+CREATE PROCEDURE _mig006()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'coach_payment_history'
+          AND COLUMN_NAME  = 'platform_fee'
+    ) THEN
+        ALTER TABLE coach_payment_history
+            ADD COLUMN platform_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'coach_payment_history'
+          AND COLUMN_NAME  = 'coach_payout_amount'
+    ) THEN
+        ALTER TABLE coach_payment_history
+            ADD COLUMN coach_payout_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'coach_payment_history'
+          AND COLUMN_NAME  = 'status'
+    ) THEN
+        ALTER TABLE coach_payment_history
+            ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'Completed';
+    END IF;
+
+    UPDATE coach_payment_history
+    SET platform_fee = ROUND(amount * 0.10, 2)
+    WHERE platform_fee = 0.00;
+
+    UPDATE coach_payment_history
+    SET coach_payout_amount = ROUND(amount - platform_fee, 2)
+    WHERE coach_payout_amount = 0.00;
+END $$
+CALL _mig006() $$
+DROP PROCEDURE IF EXISTS _mig006 $$
 DELIMITER ;
