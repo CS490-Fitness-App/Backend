@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session, joinedload, selectinload
 from typing import List
 
@@ -80,8 +80,23 @@ def _validate_exercise_payload(data: ExerciseIn, db: Session, exclude_exercise_i
 
 
 @router.get("", response_model=List[ExerciseOut])
-def list_exercises(db: Session = Depends(get_db)):
-    exercises = _exercise_query(db).all()
+def list_exercises(name: str | None = Query(default=None),
+                    category_id: int | None = Query(default=None),
+                    experience_level_id: int | None = Query(default=None),
+                    db: Session = Depends(get_db)):
+    
+    query = _exercise_query(db)
+
+    if name and name.strip():
+        query = query.filter(Exercise.name.ilike(f"%{name.strip()}%"))
+
+    if category_id:
+        query = query.filter(Exercise.category_id == category_id)
+
+    if experience_level_id:
+        query = query.filter(Exercise.experience_level_id == experience_level_id)
+
+    exercises = query.all()
     return [_to_out(e) for e in exercises]
 
 
