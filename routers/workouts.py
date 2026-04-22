@@ -1,7 +1,8 @@
 # Handles workout plan endpoints (UC 3.2–3.4): creating/editing workout plans, browsing the library, managing saved workouts, and scheduling.
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_, or_
 from typing import List, Optional
 from datetime import date
 
@@ -110,19 +111,39 @@ def _insert_exercises(workout_id: int, exercises, db: Session):
 
 # Browse workouts owned by the current user or assigned to them
 @router.get("", response_model=List[WorkoutOut])
-def list_workouts(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    workouts = (
+def list_workouts(
+    name: Optional[str] = Query(None),
+    goal_type_id: Optional[int] = Query(None),
+    experience_level_id: Optional[int] = Query(None),
+
+    db: Session = Depends(get_db), 
+    current_user=Depends(get_current_user
+)):
+
+    query = (
         db.query(Workout)
         .options(
             joinedload(Workout.experience_level),
             joinedload(Workout.goal_type),
         )
         .filter(
-            (Workout.creator_id == current_user.user_id) |
-            (Workout.assigned_to == current_user.user_id)
+            or_(
+                Workout.creator_id == current_user.user_id,
+                Workout.assigned_to != current_user.user_id,
+            )
         )
-        .all()
     )
+
+    if name:
+        query = query.filter(Workout.name.ilike(f"%{name}%"))
+
+    if goal_type_id:
+        query = query.filter(Workout.goal_type_id == goal_type_id)
+
+    if experience_level_id:
+        query = query.filter(Workout.experience_level_id == experience_level_id)
+
+    workouts = query.all()
     return [_to_out(w) for w in workouts]
 
 
