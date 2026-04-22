@@ -8,6 +8,7 @@ from sqlalchemy import func
 from core.database import get_db
 from dependencies.rbac import get_current_user
 from models.coach import ClientCoach
+from models.log import WeightLog
 from models.review import Review
 from models.user import User, Client, Coach
 from models.workout import Workout, WorkoutLog, ScheduledWorkout, WorkoutPlan
@@ -74,7 +75,15 @@ def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(get
         last_name = user.last_name or ""
         full_name = f"{first_name} {last_name}".strip() or "Client"
 
-    current_weight_lb = _grams_to_pounds(client.weight) if client else None
+    latest_weight_log = (
+        db.query(WeightLog)
+        .filter(WeightLog.user_id == current_user.user_id)
+        .order_by(WeightLog.created_at.desc())
+        .first()
+    )
+
+    current_weight_grams = latest_weight_log.weight if latest_weight_log else (client.weight if client else None)
+    current_weight_lb = _grams_to_pounds(current_weight_grams)
     goal_weight_lb = _grams_to_pounds(client.goal_weight) if client else None
     weekly_streak = client.weekly_streak if client else 0
 

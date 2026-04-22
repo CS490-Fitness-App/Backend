@@ -47,6 +47,15 @@ class CaloriesLogIn(BaseModel):
     calories_burned: Optional[int] = None
 
 
+class DailyCheckInIn(BaseModel):
+    date: date
+    calories_intake: Optional[int] = None
+    step_count: Optional[int] = None
+    water_intake: Optional[int] = None
+    weight_lb: Optional[float] = None
+    mood_label: Optional[Literal["Amazing", "Good", "Okay", "Bad", "Awful"]] = None
+
+
 LogIn = Annotated[
     Union[WorkoutLogIn, StepsLogIn, CaloriesLogIn],
     Field(discriminator="type")
@@ -76,9 +85,17 @@ class DailySurveyOut(BaseModel):
 
     survey_id:       int
     survey_date:     date
+    mood_type_id:    int
     step_count:      Optional[int]
     calories_intake: Optional[int]
     calories_burned: Optional[int]
+    water_intake:    Optional[int]
+
+
+class DailyCheckInStatusOut(BaseModel):
+    completed: bool
+    date: date
+    next_reset_at: datetime
 
 
 class LogsOut(BaseModel):
