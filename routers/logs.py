@@ -1,17 +1,20 @@
 # Handles activity and wellness logging endpoints (UC 3.5, 3.7, 6.5): workout session logs, set results, daily surveys, and weight entries.
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.database import get_db
 from dependencies.rbac import require_client
-from models.log import DailySurvey
+from models.log import DailySurvey, MoodType, WeightLog
+from models.user import Client
 from models.workout import Workout, WorkoutLog, WorkoutPlan, SetResult
 from schemas.log import (
     CaloriesLogIn,
+    DailyCheckInIn,
+    DailyCheckInStatusOut,
     DailySurveyOut,
     LogIn,
     LogsOut,
@@ -24,6 +27,80 @@ from schemas.log import (
 router = APIRouter(prefix="/logs", tags=["logs"], redirect_slashes=False)
 
 _DEFAULT_MOOD = 3  # mood_type_id for "Okay" — used when auto-creating a daily survey row
+
+
+_LB_TO_GRAMS = 453.59237
+_DEFAULT_MOOD_LABEL = "Okay"
+_LEGACY_MOOD_ALIASES = {
+    "amazing": "Great",
+    "bad": "Low",
+}
+
+
+def _current_utc_date() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def _next_utc_midnight() -> datetime:
+    now = datetime.now(timezone.utc)
+    tomorrow = now.date().toordinal() + 1
+    return datetime.fromordinal(tomorrow).replace(tzinfo=timezone.utc)
+
+
+def _next_local_midnight_in_utc(target_date: date, tz_offset_minutes: int) -> datetime:
+    # JS Date.getTimezoneOffset() uses UTC - local (minutes).
+    local_next_midnight = datetime.combine(target_date + timedelta(days=1), time.min)
+    return (local_next_midnight + timedelta(minutes=tz_offset_minutes)).replace(tzinfo=timezone.utc)
+
+
+def _resolve_mood_type_id(db: Session, mood_label: str | None) -> int:
+    selected_label = (mood_label or _DEFAULT_MOOD_LABEL).strip()
+    if not selected_label:
+        selected_label = _DEFAULT_MOOD_LABEL
+
+    existing = db.query(MoodType).filter(
+        func.lower(MoodType.mood_type_name) == selected_label.lower()
+    ).first()
+    if existing:
+        return existing.mood_type_id
+
+    legacy_label = _LEGACY_MOOD_ALIASES.get(selected_label.lower())
+    if legacy_label:
+        legacy = db.query(MoodType).filter(
+            func.lower(MoodType.mood_type_name) == legacy_label.lower()
+        ).first()
+        if legacy:
+            return legacy.mood_type_id
+
+    mood = MoodType(mood_type_name=selected_label)
+    db.add(mood)
+    db.flush()
+    return mood.mood_type_id
+
+
+@router.get("/daily-checkin/status", response_model=DailyCheckInStatusOut)
+def get_daily_checkin_status(
+    for_date: date | None = Query(default=None),
+    tz_offset_minutes: int | None = Query(default=None, ge=-840, le=840),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    target_date = for_date or _current_utc_date()
+    survey = db.query(DailySurvey).filter(
+        DailySurvey.user_id == current_user.user_id,
+        DailySurvey.survey_date == target_date,
+    ).first()
+
+    if tz_offset_minutes is not None:
+        next_reset_at = _next_local_midnight_in_utc(target_date, tz_offset_minutes)
+    else:
+        next_reset_at = _next_utc_midnight()
+
+    return DailyCheckInStatusOut(
+        completed=survey is not None,
+        date=target_date,
+        next_reset_at=next_reset_at,
+    )
 
 
 # POST /logs — create a workout log, or upsert steps/calories into the daily survey
@@ -87,6 +164,58 @@ def create_log(
     db.commit()
     db.refresh(survey)
     return DailySurveyOut.model_validate(survey)
+
+
+@router.post("/daily-checkin", status_code=201)
+def create_daily_checkin(
+    data: DailyCheckInIn,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    survey = db.query(DailySurvey).filter(
+        DailySurvey.user_id == current_user.user_id,
+        DailySurvey.survey_date == data.date,
+    ).first()
+
+    if survey:
+        raise HTTPException(
+            status_code=409,
+            detail="Daily check-in already submitted for today. Please return after midnight.",
+        )
+
+    survey = DailySurvey(
+        user_id=current_user.user_id,
+        survey_date=data.date,
+        mood_type_id=_resolve_mood_type_id(db, data.mood_label),
+    )
+    db.add(survey)
+
+    if data.calories_intake is not None:
+        survey.calories_intake = data.calories_intake
+    if data.step_count is not None:
+        survey.step_count = data.step_count
+    if data.water_intake is not None:
+        survey.water_intake = data.water_intake
+    if data.mood_label is not None:
+        survey.mood_type_id = _resolve_mood_type_id(db, data.mood_label)
+
+    weight_logged_lb = None
+    if data.weight_lb is not None:
+        weight_grams = int(round(data.weight_lb * _LB_TO_GRAMS))
+        db.add(WeightLog(user_id=current_user.user_id, weight=weight_grams))
+        client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+        if client:
+            client.weight = weight_grams
+            client.last_updated = datetime.now(timezone.utc)
+        weight_logged_lb = data.weight_lb
+
+    db.commit()
+    db.refresh(survey)
+
+    return {
+        "daily_survey": DailySurveyOut.model_validate(survey),
+        "weight_logged_lb": weight_logged_lb,
+    }
 
 
 # GET /logs?userId=&date= — return workout logs and daily survey for a user on a given date
