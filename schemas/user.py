@@ -62,3 +62,10 @@ class UserProfileOut(BaseModel):
     client_profile: Optional[ClientProfileOut] = None
     coach_profile: Optional[CoachProfileOut] = None
     admin_profile: Optional[AdminProfileOut] = None
+
+
+class UserProfileUpdateIn(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    bio: Optional[str] = None
+    goal_weight_lb: Optional[float] = None
