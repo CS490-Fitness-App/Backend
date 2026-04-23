@@ -320,6 +320,12 @@ INSERT INTO Coach_Payment_History (client_id, coach_id, amount, payment_date, cr
 (8,  2, 180.00, '2025-03-15 11:30:00', '2025-03-15 11:30:00', '2025-03-15 11:30:00'),
 (9,  3, 130.00, '2025-04-01 08:30:00', '2025-04-01 08:30:00', '2025-04-01 08:30:00');
 
+UPDATE Coach_Payment_History
+SET
+    platform_fee = ROUND(amount * 0.10, 2),
+    coach_payout_amount = ROUND(amount * 0.90, 2),
+    status = 'Completed';
+
 -- =============================================================================
 -- 23. Notifications
 -- =============================================================================
