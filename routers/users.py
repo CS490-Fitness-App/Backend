@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from uuid import uuid4
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -10,7 +11,7 @@ from core.database import get_db
 from dependencies.rbac import get_current_user
 from models.log import Goal
 from models.user import Admin, Client, Coach, User
-from schemas.user import AdminProfileOut, ClientProfileOut, CoachProfileOut, UserProfileOut
+from schemas.user import AdminProfileOut, ClientProfileOut, CoachProfileOut, UserProfileOut, UserProfileUpdateIn
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -82,6 +83,52 @@ def get_my_profile(
 	db: Session = Depends(get_db),
 	current_user: User = Depends(get_current_user),
 ):
+	return _build_profile_response(db, current_user)
+
+
+@router.patch("/me", response_model=UserProfileOut)
+def update_my_profile(
+	payload: UserProfileUpdateIn,
+	db: Session = Depends(get_db),
+	current_user: User = Depends(get_current_user),
+):
+	now = datetime.now(timezone.utc)
+	has_changes = False
+
+	if payload.first_name is not None:
+		current_user.first_name = (payload.first_name or "").strip() or None
+		has_changes = True
+
+	if payload.last_name is not None:
+		current_user.last_name = (payload.last_name or "").strip() or None
+		has_changes = True
+
+	if payload.goal_weight_lb is not None:
+		if payload.goal_weight_lb <= 0:
+			raise HTTPException(status_code=400, detail="Goal weight must be greater than 0.")
+
+		client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+		if not client:
+			raise HTTPException(status_code=400, detail="Goal weight can only be set for client profiles.")
+
+		client.goal_weight = int(round(payload.goal_weight_lb * 453.592))
+		client.last_updated = now
+		has_changes = True
+
+	if payload.bio is not None:
+		coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+		if not coach:
+			raise HTTPException(status_code=400, detail="Bio can only be set for coach profiles.")
+
+		coach.bio = (payload.bio or "").strip() or None
+		coach.last_updated = now
+		has_changes = True
+
+	if has_changes:
+		current_user.last_updated = now
+		db.commit()
+		db.refresh(current_user)
+
 	return _build_profile_response(db, current_user)
 
 

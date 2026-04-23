@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 
 from core.database import get_db
-from dependencies.rbac import require_client
+from dependencies.rbac import require_client, get_current_user
 from models.coach import ClientCoach
 from models.log import DailySurvey, MoodType, WeightLog
 from models.review import Review
