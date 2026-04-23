@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 
 from core.database import get_db
-from dependencies.rbac import get_current_user
+from dependencies.rbac import require_client
 from models.coach import ClientCoach
 from models.log import DailySurvey, MoodType, WeightLog
 from models.review import Review
@@ -63,7 +63,7 @@ def _score_to_closest_mood(score: float | None) -> str:
 
 
 @router.get("/client")
-def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(require_client)):
     user = db.query(User).filter(User.user_id == current_user.user_id).first()
     client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
 
