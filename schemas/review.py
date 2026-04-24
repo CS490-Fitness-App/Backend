@@ -3,15 +3,14 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     review_id: int
     coach_id: int
     rating: int
     description: Optional[str] = None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
