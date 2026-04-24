@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 # Import all models so Base.metadata knows about every table before create_all
 import models.user        # noqa: F401
@@ -21,26 +22,22 @@ from dependencies.rbac import require_admin
 from models.exercise import ExerciseCategory, ExperienceLevel, MuscleGroup
 from main import app
 
-_engine = create_engine(
-    "sqlite:///:memory:",
-    connect_args={"check_same_thread": False},
-)
-_TestingSession = sessionmaker(bind=_engine)
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _create_tables():
-    Base.metadata.create_all(bind=_engine)
-    yield
-    Base.metadata.drop_all(bind=_engine)
-
 
 @pytest.fixture
 def db():
-    session = _TestingSession()
+    # Fresh engine + schema per test: avoids cross-test data bleed and the
+    # sqlite:///:memory: "different connection = different DB" trap.
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,  # single connection shared by all sessions on this engine
+    )
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
     yield session
-    session.rollback()
     session.close()
+    engine.dispose()
 
 
 @pytest.fixture
