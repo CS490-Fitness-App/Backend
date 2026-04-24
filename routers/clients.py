@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from core.database import get_db
-from dependencies.rbac import require_client
+from dependencies.rbac import require_client, get_current_user
 from models.user import Client
 from models.log import Goal, GoalType
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 def register_client(
     data: ClientRegisterIn,
     db: Session = Depends(get_db),
-    current_user=Depends(require_client)
+    current_user=Depends(get_current_user)
 ):
     # validate every requested goal_type_id exists
     for gid in data.goal_type_ids:
