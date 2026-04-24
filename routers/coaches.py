@@ -76,45 +76,52 @@ def _build_coach_out(coach: Coach, db: Session) -> CoachOut:
 def register_coach(
     data: CoachRegisterIn,
     db: Session = Depends(get_db),
-    current_user=Depends(require_client)
+    current_user=Depends(require_coach)
 ):
-    # check if coach already exists
-    existing = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="You have already applied to be a coach")
+    # _ensure_role_record() pre-creates an empty Coach row on first login, so upsert
+    coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+    if coach:
+        coach.gender = data.gender
+        coach.hourly_rate = data.hourly_rate
+        coach.accepting_clients = data.accepting_clients
+        coach.bio = data.bio
+        coach.is_trainer = data.is_trainer
+        coach.is_nutritionist = data.is_nutritionist
+        coach.years_of_experience = data.years_of_experience
+        coach.max_clients = data.max_clients
+    else:
+        coach = Coach(
+            user_id=current_user.user_id,
+            gender=data.gender,
+            hourly_rate=data.hourly_rate,
+            accepting_clients=data.accepting_clients,
+            bio=data.bio,
+            status_id=1,
+            is_trainer=data.is_trainer,
+            is_nutritionist=data.is_nutritionist,
+            years_of_experience=data.years_of_experience,
+            max_clients=data.max_clients,
+        )
+        db.add(coach)
 
-    # get info for coaches table
-    coach = Coach(
-        user_id=current_user.user_id,
-        gender=data.gender,
-        hourly_rate=data.hourly_rate,
-        accepting_clients=data.accepting_clients,
-        bio=data.bio,
-        status_id=1,    # indicates "Pending" status
-        is_trainer=data.is_trainer,
-        is_nutritionist=data.is_nutritionist,
-        years_of_experience=data.years_of_experience,
-        max_clients=data.max_clients,
-    )
-    db.add(coach)
-
-    # flush sends the INSERT to the DB so SQLAlchemy assigns coach.coach_id,
-    # but does NOT commit — everything is still inside one transaction.
     db.flush()
 
-    # add session format to Coach_Session_Formats junction table
+    # replace session formats
+    db.query(CoachSessionFormat).filter(CoachSessionFormat.coach_id == coach.coach_id).delete()
     sf = db.query(SessionFormat).filter(SessionFormat.session_format_name == data.session_format).first()
     if sf:
         db.add(CoachSessionFormat(coach_id=coach.coach_id, session_format_id=sf.session_format_id))
 
-    # adds certs row by row into Coach_Certifications table
+    # replace certifications
+    db.query(CoachCertification).filter(CoachCertification.coach_id == coach.coach_id).delete()
     for cert_name in data.certifications:
         db.add(CoachCertification(
             coach_id=coach.coach_id,
             certification_name=cert_name
         ))
 
-    # add availability slots day by day into Coach_Availability table
+    # replace availability slots
+    db.query(CoachAvailability).filter(CoachAvailability.coach_id == coach.coach_id).delete()
     for slot in data.availability:
         db.add(CoachAvailability(
             coach_id=coach.coach_id,
@@ -123,15 +130,14 @@ def register_coach(
             end_time=slot.end_time
         ))
 
-    # add to Coach_Specialities
+    # replace specialities
+    db.execute(coach_specialities.delete().where(coach_specialities.c.coach_id == coach.coach_id))
     for goal_id in data.specialty_goal_type_ids:
         db.execute(coach_specialities.insert().values(
             coach_id=coach.coach_id,
             goal_type_id=goal_id
         ))
 
-    # Commit and return the newly created coach profile
-    # db.refresh reloads the coach object with any DB-generated values (timestamps etc.)
     db.commit()
     db.refresh(coach)
     return _build_coach_out(coach, db)
