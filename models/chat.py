@@ -1,6 +1,4 @@
-# ORM model for the Chat table.
-# Stores private messages exchanged between users (clients and coaches).
-
+# ORM model for the legacy flat Chat table
 from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.orm import relationship
@@ -22,5 +20,6 @@ class Chat(Base):
     created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
     last_updated = Column(DateTime(timezone=True), nullable=False, default=_now)
 
-    sender   = relationship('User', foreign_keys=[sender_id])
-    receiver = relationship('User', foreign_keys=[receiver_id])
+    # Relationships exist for convenience, but the DB is a flat message table
+    sender   = relationship('User', foreign_keys=[sender_id], backref='sent_messages')
+    receiver = relationship('User', foreign_keys=[receiver_id], backref='received_messages')

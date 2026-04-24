@@ -12,6 +12,12 @@ from core.config import settings
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def _normalize_audience(value: str | None) -> str:
+    if not value:
+        return ""
+    return value.strip().rstrip("/").lower()
+
+
 def _decode_jwt_payload(token: str) -> dict:
     "Decode JWT payload section without verifying signature."
     parts = token.split(".")
@@ -54,11 +60,17 @@ def auth(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> 
             )
 
     if settings.auth0_api_audience:
+        expected_audience = _normalize_audience(settings.auth0_api_audience)
         aud_claim = claims.get("aud")
         if isinstance(aud_claim, str):
-            aud_ok = aud_claim == settings.auth0_api_audience
+            aud_ok = _normalize_audience(aud_claim) == expected_audience
         else:
-            aud_ok = settings.auth0_api_audience in (aud_claim or [])
+            normalized_audiences = {
+                _normalize_audience(item)
+                for item in (aud_claim or [])
+                if isinstance(item, str)
+            }
+            aud_ok = expected_audience in normalized_audiences
 
         if not aud_ok:
             raise HTTPException(

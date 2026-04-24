@@ -6,32 +6,44 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from core.config import settings
+from routers.admin import router as admin_router
 from routers.auth import router as auth_router
+from routers.chat import router as chat_router
 from routers.payments import router as payments_router
 from routers.clients import router as clients_router
 from routers.coaches import router as coaches_router
 from routers.dashboard import router as dashboard_router
 from routers.exercises import router as exercises_router
+from routers.notifications import router as notifications_router
+from routers.logs import router as logs_router
+from routers.reviews import router as reviews_router
+from routers.users import router as users_router
 from routers.workouts import router as workouts_router
-from routers.dashboard import router as dashboard_router
 
 app = FastAPI(title="Primal Fitness Backend")
 
 app.add_middleware(
 	CORSMiddleware,
-	allow_origins=["*"],
-	allow_credentials=True,
+	allow_origins=settings.cors_allowed_origins or ["*"],
+	allow_credentials=False,
 	allow_methods=["*"],
 	allow_headers=["*"],
 )
 
+app.include_router(admin_router)
 app.include_router(auth_router)
+app.include_router(chat_router)
 app.include_router(payments_router)
 app.include_router(clients_router)
 app.include_router(workouts_router)
 app.include_router(coaches_router)
 app.include_router(exercises_router)
+app.include_router(notifications_router)
+app.include_router(logs_router)
+app.include_router(reviews_router)
 app.include_router(dashboard_router)
+app.include_router(users_router)
 
 # serve everything inside the local ./uploads folder at the /uploads URL path
 os.makedirs("uploads", exist_ok=True)

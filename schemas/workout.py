@@ -36,6 +36,7 @@ class WorkoutExerciseOut(BaseModel):
     exercise_name: str
     sets: Optional[int] = None
     target_value: Optional[float] = None
+    unit_id: int
     unit_name: str
     order_in_workout: Optional[int] = None
     rest: Optional[int] = None
@@ -45,7 +46,9 @@ class WorkoutOut(BaseModel):
     workout_id: int
     name: str
     image_url: Optional[str] = None
+    experience_level_id: Optional[int] = None
     experience_level: Optional[str] = None
+    goal_type_id: Optional[int] = None
     goal_type: Optional[str] = None
     equipment_required: Optional[str] = None
     workout_time_mins: Optional[int] = None
