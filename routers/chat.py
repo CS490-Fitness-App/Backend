@@ -87,22 +87,25 @@ def create_or_get_chat(
     if current_user.role == 'admin' or other_user.role == 'admin':
         raise HTTPException(status_code=400, detail="Admin users cannot participate in coach-client chats.")
 
-    # Both users must be different roles (one coach, one client)
-    if current_user.role == other_user.role:
-        raise HTTPException(status_code=400, detail="A chat must be between a coach and a client.")
+    # Determine coach/client sides by profile, not role — a coach can also be a client.
+    # Prefer: current user as coach (if they have a Coach profile and other has a Client profile).
+    # Fall back to: other user as coach (if other has a Coach profile and current has a Client profile).
+    current_coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+    current_client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+    other_coach   = db.query(Coach).filter(Coach.user_id == other_user.user_id).first()
+    other_client  = db.query(Client).filter(Client.user_id == other_user.user_id).first()
 
-    # Determine coach/client sides
-    if current_user.role == 'coach':
+    if current_coach and other_client:
+        coach_profile, client_profile = current_coach, other_client
         coach_user, client_user = current_user, other_user
-    else:
+    elif current_client and other_coach:
+        coach_profile, client_profile = other_coach, current_client
         coach_user, client_user = other_user, current_user
-
-    # Validate that a coach-client relationship exists (must not be Declined)
-    coach_profile = db.query(Coach).filter(Coach.user_id == coach_user.user_id).first()
-    client_profile = db.query(Client).filter(Client.user_id == client_user.user_id).first()
-
-    if not coach_profile or not client_profile:
-        raise HTTPException(status_code=400, detail="Could not find coach or client profile.")
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="A chat requires one participant with a coach profile and one with a client profile.",
+        )
 
     rel_exists = db.query(ClientCoach.client_id).filter(
         ClientCoach.coach_id == coach_profile.coach_id,
