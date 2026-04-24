@@ -16,7 +16,7 @@ from routers.notifications import notify
 from models.payment import Card
 
 
-from schemas.coach import CoachOut, CoachRegisterIn, CoachClientsOut, ClientEntry
+from schemas.coach import CoachOut, CoachRegisterIn, CoachClientsOut, ClientEntry, AvailabilityIn
 
 router = APIRouter(prefix="/coaches", tags=["coaches"], redirect_slashes=False)
 
@@ -376,6 +376,50 @@ def end_contract(
     
     else:
         raise HTTPException(status_code=403, detail="Invalid user role for Client-Coach relationship termination.")
+
+
+@router.get("/me/availability")
+def get_my_availability(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_coach),
+):
+    coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+    if not coach:
+        raise HTTPException(status_code=404, detail="Coach profile not found.")
+    avail = db.query(CoachAvailability).filter(
+        CoachAvailability.coach_id == coach.coach_id
+    ).all()
+    return [
+        {
+            "day_of_week": a.day_of_week.value if hasattr(a.day_of_week, 'value') else a.day_of_week,
+            "start_time": str(a.start_time),
+            "end_time": str(a.end_time),
+        }
+        for a in avail
+    ]
+
+
+@router.put("/me/availability")
+def update_my_availability(
+    slots: list[AvailabilityIn],
+    db: Session = Depends(get_db),
+    current_user=Depends(require_coach),
+):
+    coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+    if not coach:
+        raise HTTPException(status_code=404, detail="Coach profile not found.")
+    db.query(CoachAvailability).filter(
+        CoachAvailability.coach_id == coach.coach_id
+    ).delete()
+    for slot in slots:
+        db.add(CoachAvailability(
+            coach_id=coach.coach_id,
+            day_of_week=slot.day_of_week,
+            start_time=slot.start_time,
+            end_time=slot.end_time,
+        ))
+    db.commit()
+    return {"message": "Availability updated successfully."}
 
 
 @router.get("/me", response_model=CoachOut)
