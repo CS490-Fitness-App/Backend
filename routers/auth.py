@@ -83,17 +83,16 @@ def _commit_or_resolve_user(
 
 def _ensure_role_record(db: Session, user: User) -> None:
     # Keep role tables (Clients/Coaches/Admins) synced with the Users.role field.
+    # Coaches also get a Client row so they can use client-facing features.
     if user.role == "coach":
-        existing = db.query(Coach).filter(Coach.user_id == user.user_id).first()
-        if not existing:
-            db.add(Coach(user_id=user.user_id))
+        # Coach row is created by POST /coaches/register during the survey — don't pre-create it.
+        if not db.query(Client).filter(Client.user_id == user.user_id).first():
+            db.add(Client(user_id=user.user_id))
     elif user.role == "admin":
-        existing = db.query(Admin).filter(Admin.user_id == user.user_id).first()
-        if not existing:
+        if not db.query(Admin).filter(Admin.user_id == user.user_id).first():
             db.add(Admin(user_id=user.user_id))
     else:
-        existing = db.query(Client).filter(Client.user_id == user.user_id).first()
-        if not existing:
+        if not db.query(Client).filter(Client.user_id == user.user_id).first():
             db.add(Client(user_id=user.user_id))
 
 
@@ -131,6 +130,7 @@ def create_account(
     )
     db.add(user)
     db.flush()
+    _ensure_role_record(db, user)
     return _commit_or_resolve_user(
         db,
         auth0_sub=auth0_sub,
@@ -168,6 +168,7 @@ def login_or_sync_account(
             if payload.profile_picture and not existing_email_user.profile_picture:
                 existing_email_user.profile_picture = payload.profile_picture
             existing_email_user.last_updated = _now()
+            _ensure_role_record(db, existing_email_user)
             return _commit_or_resolve_user(
                 db,
                 auth0_sub=auth0_sub,
@@ -187,6 +188,7 @@ def login_or_sync_account(
         )
         db.add(user)
         db.flush()
+        _ensure_role_record(db, user)
         return _commit_or_resolve_user(
             db,
             auth0_sub=auth0_sub,
@@ -206,6 +208,7 @@ def login_or_sync_account(
         user.profile_picture = payload.profile_picture
 
     user.last_updated = _now()
+    _ensure_role_record(db, user)
     return _commit_or_resolve_user(
         db,
         auth0_sub=auth0_sub,
