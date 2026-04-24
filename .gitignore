@@ -3,3 +3,4 @@
 __pycache__/
 *.pyc
 primal_fitness.sql
+Database/*
