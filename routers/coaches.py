@@ -148,6 +148,7 @@ def browse_coaches(
     max_rate: Optional[float] = Query(None),
     avg_rating: Optional[float] = Query(None),
     session_format: Optional[str] = Query(None, description="Filter by session format: Virtual, In-Person, Both"),
+    day: Optional[str] = Query(None, description="Filter by available day: MON, TUE, WED, THU, FRI, SAT, SUN"),
     db: Session = Depends(get_db)
 ):
     # Base query: active coaches who are accepting clients
@@ -191,6 +192,13 @@ def browse_coaches(
             .join(coach_specialities, coach_specialities.c.coach_id == Coach.coach_id)
             .join(GoalType, GoalType.goal_type_id == coach_specialities.c.goal_type_id)
             .filter(GoalType.goal_type_id == specialty)
+        )
+
+    if day:
+        query = (
+            query
+            .join(CoachAvailability, CoachAvailability.coach_id == Coach.coach_id)
+            .filter(CoachAvailability.day_of_week == day.upper())
         )
 
     query = query.outerjoin(Review, Review.coach_id == Coach.coach_id)
