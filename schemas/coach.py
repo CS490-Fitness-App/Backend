@@ -61,7 +61,7 @@ class CoachOut(BaseModel):
     last_name:           str
     profile_picture:     Optional[str]
     bio:                 Optional[str]
-    gender:              str
+    gender:              Optional[str]
     hourly_rate:         float
     is_trainer:          bool
     is_nutritionist:     bool
