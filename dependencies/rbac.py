@@ -43,6 +43,13 @@ def _require_role(expected_role: str):
 
 
 # Use in routes: current_user=Depends(require_client)
-require_client = _require_role("client")
+def require_client(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in ("client", "coach"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. This endpoint requires role: client.",
+        )
+    return current_user
+
 require_coach = _require_role("coach")
 require_admin = _require_role("admin")
