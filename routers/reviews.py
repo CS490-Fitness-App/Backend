@@ -53,6 +53,27 @@ def _build_review_out(review: Review) -> ReviewOut:
     )
 
 
+@router.get("/{coach_id}/reviews/can-review")
+def can_review(
+    coach_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    client = current_user.client
+    if not client:
+        return {"allowed": False}
+    contract = (
+        db.query(ClientCoach)
+        .filter(
+            ClientCoach.client_id == client.client_id,
+            ClientCoach.coach_id == coach_id,
+            ClientCoach.status_name.in_(["Active", "Terminated"]),
+        )
+        .first()
+    )
+    return {"allowed": bool(contract)}
+
+
 @router.get("/{coach_id}/reviews", response_model=list[ReviewOut])
 def get_coach_reviews(
     coach_id: int,
