@@ -25,6 +25,22 @@ def _grams_to_pounds(value):
     return round(value / 453.592, 1)
 
 
+def _cm_to_ft_in(cm):
+    if cm is None:
+        return None
+    total_inches = cm / 2.54
+    feet = int(total_inches // 12)
+    inches = round(total_inches % 12)
+    return f"{feet}'{inches}\""
+
+
+def _age_from_dob(dob):
+    if dob is None:
+        return None
+    today = date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+
 def _weekday_label(day: date) -> str:
     return day.strftime("%a")
 
@@ -424,6 +440,22 @@ def get_client_progress(
                 progress_percent = 0
 
     return {
+        "client_name": client_name,
+        "summary": {
+            "weekly_streak": client.weekly_streak if client else 0,
+            "current_plan_name": current_workout.name if current_workout else None,
+            "weeks_completed": weeks_completed_plan,
+            "intended_duration_weeks": current_workout.intended_duration_weeks if current_workout else None,
+            "last_workout_date": latest_workout_log.logged_at.strftime("%b %d, %Y") if latest_workout_log else None,
+            "current_weight_lb": current_weight_lb,
+            "goal_weight_lb": goal_weight_lb,
+            "height": _cm_to_ft_in(client.height) if client else None,
+            "age": _age_from_dob(client.DOB) if client else None,
+            "sex": client.sex if client else None,
+        },
+        "goals": goals,
+        "weight_history": weight_history,
+        "calendar_events": calendar_events,
         "weight_chart": {
             "current_weight_lb": current_weight_lb,
             "goal_weight_lb": goal_weight_lb,
