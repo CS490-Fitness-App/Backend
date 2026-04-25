@@ -10,7 +10,7 @@ from sqlalchemy import func
 from core.database import get_db
 from dependencies.rbac import require_client, get_current_user, require_coach
 from models.coach import ClientCoach
-from models.log import DailySurvey, MoodType, WeightLog
+from models.log import DailySurvey, Goal, GoalType, MoodType, WeightLog
 from models.review import Review
 from models.user import User, Client, Coach
 from models.workout import Workout, WorkoutLog, ScheduledWorkout, WorkoutPlan
@@ -447,8 +447,85 @@ def get_client_progress(
                 progress_message = f"Below goal by {abs(current_distance)} lb"
                 progress_percent = 0
 
+    # Current assigned workout plan
+    current_workout = (
+        db.query(Workout)
+        .filter(Workout.assigned_to == target_user_id)
+        .order_by(Workout.last_updated.desc())
+        .first()
+    )
+    weeks_completed_plan = 0
+    if current_workout:
+        plan_rows = db.query(WorkoutPlan).filter(WorkoutPlan.workout_id == current_workout.workout_id).all()
+        if plan_rows:
+            weeks_completed_plan = max((row.weeks_completed or 0) for row in plan_rows)
+
+    latest_workout_log = None
+    if client:
+        latest_workout_log = (
+            db.query(WorkoutLog)
+            .filter(WorkoutLog.client_id == client.client_id)
+            .order_by(WorkoutLog.logged_at.desc())
+            .first()
+        )
+
+    # Scheduled workouts for calendar (past 30 days → next 90 days)
+    cal_start = today - timedelta(days=30)
+    cal_end = today + timedelta(days=90)
+    scheduled_rows = (
+        db.query(ScheduledWorkout)
+        .options(joinedload(ScheduledWorkout.workout))
+        .filter(
+            ScheduledWorkout.user_id == target_user_id,
+            ScheduledWorkout.scheduled_date >= cal_start,
+            ScheduledWorkout.scheduled_date <= cal_end,
+        )
+        .order_by(ScheduledWorkout.scheduled_date)
+        .all()
+    )
+    calendar_events = [
+        {
+            "date": sw.scheduled_date.isoformat(),
+            "workout_name": sw.workout.name if sw.workout else "Unknown",
+            "workout_id": sw.workout_id,
+            "status": sw.status,
+        }
+        for sw in scheduled_rows
+    ]
+
+    # Goals
+    goals_rows = (
+        db.query(Goal, GoalType)
+        .join(GoalType, GoalType.goal_type_id == Goal.goal_type_id)
+        .filter(Goal.user_id == target_user_id)
+        .order_by(Goal.created_at.asc())
+        .all()
+    )
+    goals = [{"goal_type": gt.goal_type_name, "set_on": g.created_at.date().isoformat()} for g, gt in goals_rows]
+
+    # Weight history (last 20 entries, most recent first)
+    weight_history = [
+        {
+            "date": log.created_at.date().isoformat(),
+            "weight_lb": _grams_to_pounds(log.weight),
+        }
+        for log in weight_logs[:20]
+    ]
+
     return {
         "client_name": client_name,
+        "summary": {
+            "weekly_streak": client.weekly_streak if client else 0,
+            "current_plan_name": current_workout.name if current_workout else None,
+            "weeks_completed": weeks_completed_plan,
+            "intended_duration_weeks": current_workout.intended_duration_weeks if current_workout else None,
+            "last_workout_date": latest_workout_log.logged_at.strftime("%b %d, %Y") if latest_workout_log else None,
+            "current_weight_lb": current_weight_lb,
+            "goal_weight_lb": goal_weight_lb,
+        },
+        "goals": goals,
+        "weight_history": weight_history,
+        "calendar_events": calendar_events,
         "weight_chart": {
             "current_weight_lb": current_weight_lb,
             "goal_weight_lb": goal_weight_lb,
