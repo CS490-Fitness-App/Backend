@@ -62,6 +62,7 @@ def _message_out(msg: Chat) -> MessageOut:
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 # POST /chats — resolve a chat_id for the current user and another user (no DB write; conversation is implicit)
+@router.post("", response_model=ConversationOut, status_code=200, include_in_schema=False)
 @router.post("/", response_model=ConversationOut, status_code=200)
 def create_or_get_chat(
     data: ChatCreateIn,
@@ -129,6 +130,7 @@ def create_or_get_chat(
 
 
 # GET /chats — list unique conversations the current user is part of
+@router.get("", response_model=list[ConversationOut], include_in_schema=False)
 @router.get("/", response_model=list[ConversationOut])
 def list_chats(
     db: Session = Depends(get_db),

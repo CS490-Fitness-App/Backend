@@ -77,6 +77,7 @@ class ClientEntry(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     client_id:       int
+    user_id:         int
     first_name:      str
     last_name:       str
     profile_picture: Optional[str]
