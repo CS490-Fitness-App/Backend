@@ -1,12 +1,14 @@
 from datetime import date, timedelta, datetime, time, timezone
 
-from fastapi import APIRouter, Depends
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 
 from sqlalchemy import func
 
 from core.database import get_db
-from dependencies.rbac import require_client, get_current_user
+from dependencies.rbac import require_client, get_current_user, require_coach
 from models.coach import ClientCoach
 from models.log import DailySurvey, MoodType, WeightLog
 from models.review import Review
@@ -224,15 +226,37 @@ def get_client_progress(
     current_user=Depends(get_current_user),
     time_range: str = "weekly",
     selected_month: str | None = None,
+    client_user_id: Optional[int] = Query(None, description="Coach-only: view a specific client's progress by user_id"),
 ):
-    client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+    # If a coach is requesting a client's progress, verify the relationship.
+    if client_user_id is not None and client_user_id != current_user.user_id:
+        coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+        if not coach:
+            raise HTTPException(status_code=403, detail="Only coaches can view other users' progress.")
+        target_client = db.query(Client).filter(Client.user_id == client_user_id).first()
+        if not target_client:
+            raise HTTPException(status_code=404, detail="Client not found.")
+        rel = db.query(ClientCoach).filter(
+            ClientCoach.coach_id == coach.coach_id,
+            ClientCoach.client_id == target_client.client_id,
+            ClientCoach.status_name == "Active",
+        ).first()
+        if not rel:
+            raise HTTPException(status_code=403, detail="You do not have an active relationship with this client.")
+        target_user_id = client_user_id
+    else:
+        target_user_id = current_user.user_id
+
+    client = db.query(Client).filter(Client.user_id == target_user_id).first()
+    target_user = db.query(User).filter(User.user_id == target_user_id).first()
+    client_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip() if target_user else None
 
     today = date.today()
 
     # Build a list of months where the user has logged weight data.
     month_rows = (
         db.query(func.date_format(WeightLog.created_at, "%Y-%m").label("month_key"))
-        .filter(WeightLog.user_id == current_user.user_id)
+        .filter(WeightLog.user_id == target_user_id)
         .distinct()
         .order_by(func.date_format(WeightLog.created_at, "%Y-%m").desc())
         .all()
@@ -276,7 +300,7 @@ def get_client_progress(
 
     weight_logs = (
         db.query(WeightLog)
-        .filter(WeightLog.user_id == current_user.user_id)
+        .filter(WeightLog.user_id == target_user_id)
         .order_by(WeightLog.created_at.desc())
         .all()
     )
@@ -326,7 +350,7 @@ def get_client_progress(
         db.query(DailySurvey, MoodType)
         .outerjoin(MoodType, DailySurvey.mood_type_id == MoodType.mood_type_id)
         .filter(
-            DailySurvey.user_id == current_user.user_id,
+            DailySurvey.user_id == target_user_id,
             DailySurvey.survey_date >= week_start,
             DailySurvey.survey_date <= today,
         )
@@ -386,7 +410,7 @@ def get_client_progress(
     start_weight_log = (
         db.query(WeightLog)
         .filter(
-            WeightLog.user_id == current_user.user_id,
+            WeightLog.user_id == target_user_id,
             WeightLog.created_at >= datetime.combine(month_start, time.min).replace(tzinfo=timezone.utc),
             WeightLog.created_at < datetime.combine(month_start + timedelta(days=1), time.min).replace(tzinfo=timezone.utc)
         )
@@ -424,6 +448,7 @@ def get_client_progress(
                 progress_percent = 0
 
     return {
+        "client_name": client_name,
         "weight_chart": {
             "current_weight_lb": current_weight_lb,
             "goal_weight_lb": goal_weight_lb,
