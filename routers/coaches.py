@@ -16,7 +16,7 @@ from routers.notifications import notify
 from models.payment import Card
 
 
-from schemas.coach import CoachOut, CoachRegisterIn, CoachClientsOut, ClientEntry
+from schemas.coach import CoachOut, CoachRegisterIn, CoachClientsOut, ClientEntry, AvailabilityIn
 
 router = APIRouter(prefix="/coaches", tags=["coaches"], redirect_slashes=False)
 
@@ -76,45 +76,52 @@ def _build_coach_out(coach: Coach, db: Session) -> CoachOut:
 def register_coach(
     data: CoachRegisterIn,
     db: Session = Depends(get_db),
-    current_user=Depends(require_client)
+    current_user=Depends(require_coach)
 ):
-    # check if coach already exists
-    existing = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="You have already applied to be a coach")
+    # _ensure_role_record() pre-creates an empty Coach row on first login, so upsert
+    coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+    if coach:
+        coach.gender = data.gender
+        coach.hourly_rate = data.hourly_rate
+        coach.accepting_clients = data.accepting_clients
+        coach.bio = data.bio
+        coach.is_trainer = data.is_trainer
+        coach.is_nutritionist = data.is_nutritionist
+        coach.years_of_experience = data.years_of_experience
+        coach.max_clients = data.max_clients
+    else:
+        coach = Coach(
+            user_id=current_user.user_id,
+            gender=data.gender,
+            hourly_rate=data.hourly_rate,
+            accepting_clients=data.accepting_clients,
+            bio=data.bio,
+            status_id=1,
+            is_trainer=data.is_trainer,
+            is_nutritionist=data.is_nutritionist,
+            years_of_experience=data.years_of_experience,
+            max_clients=data.max_clients,
+        )
+        db.add(coach)
 
-    # get info for coaches table
-    coach = Coach(
-        user_id=current_user.user_id,
-        gender=data.gender,
-        hourly_rate=data.hourly_rate,
-        accepting_clients=data.accepting_clients,
-        bio=data.bio,
-        status_id=1,    # indicates "Pending" status
-        is_trainer=data.is_trainer,
-        is_nutritionist=data.is_nutritionist,
-        years_of_experience=data.years_of_experience,
-        max_clients=data.max_clients,
-    )
-    db.add(coach)
-
-    # flush sends the INSERT to the DB so SQLAlchemy assigns coach.coach_id,
-    # but does NOT commit — everything is still inside one transaction.
     db.flush()
 
-    # add session format to Coach_Session_Formats junction table
+    # replace session formats
+    db.query(CoachSessionFormat).filter(CoachSessionFormat.coach_id == coach.coach_id).delete()
     sf = db.query(SessionFormat).filter(SessionFormat.session_format_name == data.session_format).first()
     if sf:
         db.add(CoachSessionFormat(coach_id=coach.coach_id, session_format_id=sf.session_format_id))
 
-    # adds certs row by row into Coach_Certifications table
+    # replace certifications
+    db.query(CoachCertification).filter(CoachCertification.coach_id == coach.coach_id).delete()
     for cert_name in data.certifications:
         db.add(CoachCertification(
             coach_id=coach.coach_id,
             certification_name=cert_name
         ))
 
-    # add availability slots day by day into Coach_Availability table
+    # replace availability slots
+    db.query(CoachAvailability).filter(CoachAvailability.coach_id == coach.coach_id).delete()
     for slot in data.availability:
         db.add(CoachAvailability(
             coach_id=coach.coach_id,
@@ -123,15 +130,14 @@ def register_coach(
             end_time=slot.end_time
         ))
 
-    # add to Coach_Specialities
+    # replace specialities
+    db.execute(coach_specialities.delete().where(coach_specialities.c.coach_id == coach.coach_id))
     for goal_id in data.specialty_goal_type_ids:
         db.execute(coach_specialities.insert().values(
             coach_id=coach.coach_id,
             goal_type_id=goal_id
         ))
 
-    # Commit and return the newly created coach profile
-    # db.refresh reloads the coach object with any DB-generated values (timestamps etc.)
     db.commit()
     db.refresh(coach)
     return _build_coach_out(coach, db)
@@ -148,6 +154,7 @@ def browse_coaches(
     max_rate: Optional[float] = Query(None),
     avg_rating: Optional[float] = Query(None),
     session_format: Optional[str] = Query(None, description="Filter by session format: Virtual, In-Person, Both"),
+    day: Optional[str] = Query(None, description="Filter by available day: MON, TUE, WED, THU, FRI, SAT, SUN"),
     db: Session = Depends(get_db)
 ):
     # Base query: active coaches who are accepting clients
@@ -191,6 +198,13 @@ def browse_coaches(
             .join(coach_specialities, coach_specialities.c.coach_id == Coach.coach_id)
             .join(GoalType, GoalType.goal_type_id == coach_specialities.c.goal_type_id)
             .filter(GoalType.goal_type_id == specialty)
+        )
+
+    if day:
+        query = (
+            query
+            .join(CoachAvailability, CoachAvailability.coach_id == Coach.coach_id)
+            .filter(CoachAvailability.day_of_week == day.upper())
         )
 
     query = query.outerjoin(Review, Review.coach_id == Coach.coach_id)
@@ -376,6 +390,50 @@ def end_contract(
     
     else:
         raise HTTPException(status_code=403, detail="Invalid user role for Client-Coach relationship termination.")
+
+
+@router.get("/me/availability")
+def get_my_availability(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_coach),
+):
+    coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+    if not coach:
+        raise HTTPException(status_code=404, detail="Coach profile not found.")
+    avail = db.query(CoachAvailability).filter(
+        CoachAvailability.coach_id == coach.coach_id
+    ).all()
+    return [
+        {
+            "day_of_week": a.day_of_week.value if hasattr(a.day_of_week, 'value') else a.day_of_week,
+            "start_time": str(a.start_time),
+            "end_time": str(a.end_time),
+        }
+        for a in avail
+    ]
+
+
+@router.put("/me/availability")
+def update_my_availability(
+    slots: list[AvailabilityIn],
+    db: Session = Depends(get_db),
+    current_user=Depends(require_coach),
+):
+    coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+    if not coach:
+        raise HTTPException(status_code=404, detail="Coach profile not found.")
+    db.query(CoachAvailability).filter(
+        CoachAvailability.coach_id == coach.coach_id
+    ).delete()
+    for slot in slots:
+        db.add(CoachAvailability(
+            coach_id=coach.coach_id,
+            day_of_week=slot.day_of_week,
+            start_time=slot.start_time,
+            end_time=slot.end_time,
+        ))
+    db.commit()
+    return {"message": "Availability updated successfully."}
 
 
 @router.get("/me", response_model=CoachOut)

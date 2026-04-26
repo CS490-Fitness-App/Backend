@@ -48,8 +48,8 @@ def _validate_card(data: CardIn) -> str:
     if not data.card_number.isdigit() or len(data.card_number) != 16:
         raise HTTPException(status_code=400, detail="Card number must be exactly 16 digits.")
 
-    if not _luhn_valid(data.card_number):
-        raise HTTPException(status_code=400, detail="Invalid card number.")
+    # if not _luhn_valid(data.card_number):
+    #     raise HTTPException(status_code=400, detail="Invalid card number.")
 
     card_type_name = _detect_card_type(data.card_number)
     if card_type_name is None:

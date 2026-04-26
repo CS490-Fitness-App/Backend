@@ -61,7 +61,7 @@ class CoachOut(BaseModel):
     last_name:           str
     profile_picture:     Optional[str]
     bio:                 Optional[str]
-    gender:              Optional[str] = None # There is a coach with no gender assigned crashing stuff
+    gender:              Optional[str]
     hourly_rate:         float
     is_trainer:          bool
     is_nutritionist:     bool
