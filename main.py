@@ -25,7 +25,7 @@ app = FastAPI(title="Primal Fitness Backend")
 
 app.add_middleware(
 	CORSMiddleware,
-	allow_origins=settings.cors_allowed_origins or ["*"],
+	allow_origins=["*"],
 	allow_credentials=False,
 	allow_methods=["*"],
 	allow_headers=["*"],

@@ -151,6 +151,7 @@ def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(req
                 )
                 active_coach = {
                     "coach_id": coach.coach_id,
+                    "user_id": coach.user_id,
                     "first_name": coach_user.first_name if coach_user else "",
                     "last_name": coach_user.last_name if coach_user else "",
                     "specialization": specialization,
