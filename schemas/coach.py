@@ -28,7 +28,7 @@ class AvailabilityIn(BaseModel):
 # Captures all data needed to create a coach application across 5 tables
 class CoachRegisterIn(BaseModel):
     # Information for coaches table
-    gender:              str
+    gender:              Optional[str]  = None
     hourly_rate:         float
     is_trainer:          bool
     is_nutritionist:     bool
