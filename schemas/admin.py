@@ -22,6 +22,14 @@ class AdminCoachDecisionOut(BaseModel):
     status: str
 
 
+class AdminOverviewOut(BaseModel):
+    total_users: int
+    total_clients: int
+    active_coaches: int
+    pending_approvals: int
+    revenue_this_month: float
+
+
 class AdminFinancialChartPointOut(BaseModel):
     label: str
     revenue: float
@@ -54,3 +62,43 @@ class AdminFinancialSummaryOut(BaseModel):
     has_transactions: bool
     chart: list[AdminFinancialChartPointOut]
     recent_transactions: list[AdminFinancialTransactionOut]
+
+
+class AdminEngagementChartPointOut(BaseModel):
+    date: str
+    label: str
+    active_users: int
+    survey_completions: int
+    survey_completion_rate: float
+    average_mood_score: float | None = None
+    average_mood_label: str | None = None
+
+
+class AdminMoodBreakdownOut(BaseModel):
+    label: str
+    count: int
+    percentage: float
+
+
+class AdminEngagementSummaryOut(BaseModel):
+    period: str
+    days: int
+    total_clients: int
+    today_active_users: int
+    today_survey_completions: int
+    unique_active_users: int
+    repeat_active_users: int
+    active_user_rate: float
+    average_daily_active_users: float
+    average_survey_completion_rate: float
+    total_surveys_logged: int
+    average_mood_score: float | None = None
+    average_mood_label: str | None = None
+    positive_mood_rate: float
+    most_common_mood_label: str | None = None
+    stickiness_rate: float
+    surveys_per_active_user: float
+    best_active_day_label: str | None = None
+    best_completion_day_label: str | None = None
+    mood_breakdown: list[AdminMoodBreakdownOut]
+    chart: list[AdminEngagementChartPointOut]

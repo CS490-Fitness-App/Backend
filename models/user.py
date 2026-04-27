@@ -36,6 +36,7 @@ class User(Base):
     profile_picture = Column(Text)
     role            = Column(String(50), nullable=False, default='client')
     created_at      = Column(DateTime(timezone=True), nullable=False, default=_now)
+    last_active_at  = Column(DateTime(timezone=True))
     last_updated    = Column(DateTime(timezone=True), nullable=False, default=_now)
 
     client = relationship('Client', back_populates='user', uselist=False)

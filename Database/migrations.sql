@@ -6,7 +6,7 @@
 --
 -- Usage:  mysql -u root -p primal_fitness < migrations.sql
 -- =============================================================================
-USE primal_fitness
+USE primal_fitness;
 DELIMITER $$
 
 -- -----------------------------------------------------------------------------
@@ -30,7 +30,6 @@ END $$
 CALL _mig000() $$
 DROP PROCEDURE IF EXISTS _mig000 $$
 
-
 -- -----------------------------------------------------------------------------
 -- Migration 001: Add activated_at to client_coach
 -- Tracks when a coach accepted a client request (vs. when the request was sent).
@@ -52,7 +51,6 @@ END $$
 CALL _mig001() $$
 DROP PROCEDURE IF EXISTS _mig001 $$
 
-
 -- -----------------------------------------------------------------------------
 -- Migration 002: Add is_read to notifications
 -- Required for GET /notifications/:userId to sort unread notifications first.
@@ -73,9 +71,7 @@ END $$
 CALL _mig002() $$
 DROP PROCEDURE IF EXISTS _mig002 $$
 
-
 DELIMITER ;
-
 
 -- -----------------------------------------------------------------------------
 -- Migration 003: Create chats table
@@ -96,7 +92,6 @@ CREATE TABLE IF NOT EXISTS chats (
     CONSTRAINT fk_chats_client FOREIGN KEY (client_user_id) REFERENCES users (user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-
 -- -----------------------------------------------------------------------------
 -- Migration 004: Create messages table
 -- Individual messages within a chat conversation.
@@ -108,8 +103,8 @@ CREATE TABLE IF NOT EXISTS messages (
     sender_id    INT                                                                 NOT NULL,
     message_type ENUM('text','exercise_link','workout_plan_link','survey_snapshot') NOT NULL DEFAULT 'text',
     body         TEXT                                                                NULL,
-    ref_id       INT                                                                 NULL,   -- exercise_id or workout_id
-    snapshot     JSON                                                                NULL,   -- survey answer snapshot
+    ref_id       INT                                                                 NULL,
+    snapshot     JSON                                                                NULL,
     sent_at      TIMESTAMP                                                           NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at   TIMESTAMP                                                           NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_updated TIMESTAMP                                                           NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -118,7 +113,6 @@ CREATE TABLE IF NOT EXISTS messages (
     CONSTRAINT fk_messages_chat   FOREIGN KEY (chat_id)   REFERENCES chats (chat_id) ON DELETE CASCADE,
     CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id) REFERENCES users (user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
 
 -- -----------------------------------------------------------------------------
 -- Migration 005: Rename audit_log to Audit_Log on case-sensitive MySQL hosts
@@ -145,7 +139,6 @@ END $$
 CALL _mig005() $$
 DROP PROCEDURE IF EXISTS _mig005 $$
 DELIMITER ;
-
 
 -- -----------------------------------------------------------------------------
 -- Migration 006: Add finance tracking fields to coach_payment_history
@@ -199,39 +192,54 @@ CALL _mig006() $$
 DROP PROCEDURE IF EXISTS _mig006 $$
 DELIMITER ;
 
-
 -- -----------------------------------------------------------------------------
--- Migration 008: Add skipped to set_results
--- Supports per-exercise skip state in the activity logger without forcing fake
--- numeric values into logged set results.
--- -----------------------------------------------------------------------------
-DELIMITER $$
-DROP PROCEDURE IF EXISTS _mig008 $$
-CREATE PROCEDURE _mig008()
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME   = 'set_results'
-          AND COLUMN_NAME  = 'skipped'
-    ) THEN
-        ALTER TABLE set_results
-            ADD COLUMN skipped BOOLEAN NOT NULL DEFAULT FALSE AFTER exercise_id;
-    END IF;
-END $$
-CALL _mig008() $$
-DROP PROCEDURE IF EXISTS _mig008 $$
-DELIMITER ;
-
-
--- -----------------------------------------------------------------------------
--- Migration 007: Add exercise_id to set_results
--- Activity/workout logging now links each logged set back to the exercise it
--- belongs to. Older databases were created before this nullable FK existed.
+-- Migration 007: Add last_active_at to users
+-- Supports daily engagement analytics by recording successful login activity.
 -- -----------------------------------------------------------------------------
 DELIMITER $$
 DROP PROCEDURE IF EXISTS _mig007 $$
 CREATE PROCEDURE _mig007()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'last_active_at'
+    ) THEN
+        ALTER TABLE users
+            ADD COLUMN last_active_at TIMESTAMP NULL AFTER created_at;
+    END IF;
+END $$
+CALL _mig007() $$
+DROP PROCEDURE IF EXISTS _mig007 $$
+DELIMITER ;
+
+-- -----------------------------------------------------------------------------
+-- Migration 008: Create user_daily_engagement
+-- Stores one row per user per day for login activity and survey completion.
+-- Supports real week/month/quarter/year engagement analytics.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_daily_engagement (
+    engagement_id    INT AUTO_INCREMENT PRIMARY KEY,
+    user_id          INT NOT NULL,
+    activity_date    DATE NOT NULL,
+    first_login_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    survey_completed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user_daily_engagement_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT uq_user_daily_engagement UNIQUE (user_id, activity_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- -----------------------------------------------------------------------------
+-- Migration 009: Add exercise_id to set_results
+-- Activity/workout logging now links each logged set back to the exercise it
+-- belongs to. Older databases were created before this nullable FK existed.
+-- -----------------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS _mig009 $$
+CREATE PROCEDURE _mig009()
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
@@ -245,6 +253,29 @@ BEGIN
                 FOREIGN KEY (exercise_id) REFERENCES exercises(exercise_id) ON DELETE CASCADE;
     END IF;
 END $$
-CALL _mig007() $$
-DROP PROCEDURE IF EXISTS _mig007 $$
+CALL _mig009() $$
+DROP PROCEDURE IF EXISTS _mig009 $$
+DELIMITER ;
+
+-- -----------------------------------------------------------------------------
+-- Migration 010: Add skipped to set_results
+-- Supports per-exercise skip state in the activity logger without forcing fake
+-- numeric values into logged set results.
+-- -----------------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS _mig010 $$
+CREATE PROCEDURE _mig010()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'set_results'
+          AND COLUMN_NAME  = 'skipped'
+    ) THEN
+        ALTER TABLE set_results
+            ADD COLUMN skipped BOOLEAN NOT NULL DEFAULT FALSE AFTER exercise_id;
+    END IF;
+END $$
+CALL _mig010() $$
+DROP PROCEDURE IF EXISTS _mig010 $$
 DELIMITER ;

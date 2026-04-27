@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from core.database import get_db
 from dependencies.rbac import require_client
-from models.log import DailySurvey, Goal, MoodType, WeightLog
+from models.log import DailySurvey, Goal, MoodType, UserDailyEngagement, WeightLog
 from models.user import Client
 from models.workout import ScheduledWorkout, Workout, WorkoutLog, WorkoutPlan, SetResult
 from schemas.log import (
@@ -87,6 +87,26 @@ def _resolve_mood_type_id(db: Session, mood_label: str | None) -> int:
     return mood.mood_type_id
 
 
+def _mark_survey_completed(db: Session, user_id: int, survey_date: date) -> None:
+    now = datetime.now(timezone.utc)
+    engagement = db.query(UserDailyEngagement).filter(
+        UserDailyEngagement.user_id == user_id,
+        UserDailyEngagement.activity_date == survey_date,
+    ).first()
+    if engagement:
+        engagement.survey_completed = 1
+        engagement.last_updated = now
+        return
+
+    db.add(UserDailyEngagement(
+        user_id=user_id,
+        activity_date=survey_date,
+        first_login_at=now,
+        last_login_at=now,
+        survey_completed=1,
+        created_at=now,
+        last_updated=now,
+    ))
 def _current_client(current_user, db: Session) -> Client:
     client = current_user.client if hasattr(current_user, "client") else None
     if not client:
@@ -599,6 +619,8 @@ def create_log(
         if data.calories_burned is not None:
             survey.calories_burned = data.calories_burned
 
+    _mark_survey_completed(db, current_user.user_id, data.date)
+
     db.commit()
     db.refresh(survey)
     return DailySurveyOut.model_validate(survey)
@@ -646,6 +668,8 @@ def create_daily_checkin(
             client.weight = weight_grams
             client.last_updated = datetime.now(timezone.utc)
         weight_logged_lb = data.weight_lb
+
+    _mark_survey_completed(db, current_user.user_id, data.date)
 
     db.commit()
     db.refresh(survey)
