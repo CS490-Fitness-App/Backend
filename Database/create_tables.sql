@@ -287,6 +287,7 @@ CREATE TABLE Set_Results (
     set_results_id INT AUTO_INCREMENT PRIMARY KEY,
     workout_log_id INT NOT NULL,
     exercise_id    INT,
+    skipped        BOOLEAN NOT NULL DEFAULT FALSE,
     actual_weight  DECIMAL(8,2),
     actual_value   DECIMAL(8,2),
     created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
