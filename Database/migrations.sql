@@ -198,3 +198,45 @@ END $$
 CALL _mig006() $$
 DROP PROCEDURE IF EXISTS _mig006 $$
 DELIMITER ;
+
+
+-- -----------------------------------------------------------------------------
+-- Migration 007: Add last_active_at to users
+-- Supports daily engagement analytics by recording successful login activity.
+-- -----------------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS _mig007 $$
+CREATE PROCEDURE _mig007()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'last_active_at'
+    ) THEN
+        ALTER TABLE users
+            ADD COLUMN last_active_at TIMESTAMP NULL AFTER created_at;
+    END IF;
+END $$
+CALL _mig007() $$
+DROP PROCEDURE IF EXISTS _mig007 $$
+DELIMITER ;
+
+
+-- -----------------------------------------------------------------------------
+-- Migration 008: Create user_daily_engagement
+-- Stores one row per user per day for login activity and survey completion.
+-- Supports real week/month/quarter/year engagement analytics.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_daily_engagement (
+    engagement_id    INT AUTO_INCREMENT PRIMARY KEY,
+    user_id          INT NOT NULL,
+    activity_date    DATE NOT NULL,
+    first_login_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    survey_completed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user_daily_engagement_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT uq_user_daily_engagement UNIQUE (user_id, activity_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

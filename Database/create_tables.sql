@@ -46,6 +46,7 @@ CREATE TABLE Users (
     profile_picture TEXT,
     `role`          VARCHAR(50)  NOT NULL DEFAULT 'client',
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+    last_active_at  TIMESTAMP    NULL,
     last_updated    TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
@@ -343,6 +344,19 @@ CREATE TABLE Daily_Surveys (
     CONSTRAINT fk_daily_surveys_user      FOREIGN KEY (user_id)      REFERENCES Users(user_id)           ON DELETE CASCADE,
     CONSTRAINT fk_daily_surveys_mood_type FOREIGN KEY (mood_type_id) REFERENCES Mood_Types(mood_type_id),
     CONSTRAINT uq_survey_user_date UNIQUE (user_id, survey_date)
+);
+
+CREATE TABLE User_Daily_Engagement (
+    engagement_id    INT AUTO_INCREMENT PRIMARY KEY,
+    user_id          INT NOT NULL,
+    activity_date    DATE NOT NULL,
+    first_login_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_login_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+    survey_completed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_updated     TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_user_daily_engagement_user FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    CONSTRAINT uq_user_daily_engagement UNIQUE (user_id, activity_date)
 );
 
 -- --------------------------------------------------------------------------------------
