@@ -2,7 +2,7 @@
 # Covers workout creation, exercise-to-workout assignment, session logging, and calendar scheduling.
 
 from datetime import datetime, timezone
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import relationship
 from core.database import Base
 
@@ -74,6 +74,7 @@ class SetResult(Base):
     set_results_id = Column(Integer, primary_key=True, autoincrement=True)
     workout_log_id = Column(Integer, ForeignKey('workout_logs.workout_log_id', ondelete='CASCADE'), nullable=False)
     exercise_id    = Column(Integer, ForeignKey('exercises.exercise_id', ondelete='CASCADE'), nullable=True)
+    skipped        = Column(Boolean, nullable=False, default=False)
     actual_weight  = Column(Numeric(8, 2))
     actual_value   = Column(Numeric(8, 2))
     created_at     = Column(DateTime(timezone=True), nullable=False, default=_now)

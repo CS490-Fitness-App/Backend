@@ -198,3 +198,53 @@ END $$
 CALL _mig006() $$
 DROP PROCEDURE IF EXISTS _mig006 $$
 DELIMITER ;
+
+
+-- -----------------------------------------------------------------------------
+-- Migration 008: Add skipped to set_results
+-- Supports per-exercise skip state in the activity logger without forcing fake
+-- numeric values into logged set results.
+-- -----------------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS _mig008 $$
+CREATE PROCEDURE _mig008()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'set_results'
+          AND COLUMN_NAME  = 'skipped'
+    ) THEN
+        ALTER TABLE set_results
+            ADD COLUMN skipped BOOLEAN NOT NULL DEFAULT FALSE AFTER exercise_id;
+    END IF;
+END $$
+CALL _mig008() $$
+DROP PROCEDURE IF EXISTS _mig008 $$
+DELIMITER ;
+
+
+-- -----------------------------------------------------------------------------
+-- Migration 007: Add exercise_id to set_results
+-- Activity/workout logging now links each logged set back to the exercise it
+-- belongs to. Older databases were created before this nullable FK existed.
+-- -----------------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS _mig007 $$
+CREATE PROCEDURE _mig007()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'set_results'
+          AND COLUMN_NAME  = 'exercise_id'
+    ) THEN
+        ALTER TABLE set_results
+            ADD COLUMN exercise_id INT NULL AFTER workout_log_id,
+            ADD CONSTRAINT fk_set_results_exercise
+                FOREIGN KEY (exercise_id) REFERENCES exercises(exercise_id) ON DELETE CASCADE;
+    END IF;
+END $$
+CALL _mig007() $$
+DROP PROCEDURE IF EXISTS _mig007 $$
+DELIMITER ;
