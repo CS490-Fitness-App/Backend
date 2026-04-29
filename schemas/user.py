@@ -57,6 +57,7 @@ class UserProfileOut(BaseModel):
     last_name: Optional[str]
     profile_picture: Optional[str]
     role: str
+    is_active: bool
     created_at: datetime
     last_updated: datetime
     client_profile: Optional[ClientProfileOut] = None

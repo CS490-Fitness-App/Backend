@@ -45,6 +45,7 @@ CREATE TABLE Users (
     last_name       VARCHAR(100),
     profile_picture TEXT,
     `role`          VARCHAR(50)  NOT NULL DEFAULT 'client',
+    is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
     last_active_at  TIMESTAMP    NULL,
     last_updated    TIMESTAMP    NOT NULL DEFAULT NOW()
