@@ -108,3 +108,17 @@ def test_update_profile_no_changes(profile_client, profile_user):
     resp = profile_client.patch("/users/me", json={})
     assert resp.status_code == 200
     assert resp.json()["first_name"] == profile_user.first_name
+
+
+# POST /users/me/deactivate and /users/me/reactivate: toggling active status works.
+def test_deactivate_and_reactivate_account(profile_client):
+    resp = profile_client.post("/users/me/deactivate")
+    assert resp.status_code == 200
+    assert resp.json()["is_active"] is False
+
+    resp = profile_client.post("/users/me/reactivate")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_active"] is True
+    assert data["email"] == "profile@test.com"
+    assert data["role"] == "client"
