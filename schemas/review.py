@@ -12,6 +12,8 @@ class ReviewIn(BaseModel):
 
 
 class ReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     review_id: int
     coach_id: int
     rating: int

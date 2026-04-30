@@ -4,7 +4,7 @@
 
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class ChatCreateIn(BaseModel):
@@ -30,6 +30,8 @@ class MessageIn(BaseModel):
 
 
 class MessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     message_id:   int
     chat_id:      int            # synthetic: min(uid_a, uid_b) * 1_000_000 + max(uid_a, uid_b)
     sender_id:    int
@@ -40,16 +42,12 @@ class MessageOut(BaseModel):
     snapshot:     Optional[dict] # always None (not stored in DB)
     sent_at:      datetime
 
-    class Config:
-        from_attributes = True
-
 
 class ConversationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     chat_id:         int         # synthetic conversation identifier
     coach_user_id:   int
     client_user_id:  int
     other_user_name: str
     created_at:      datetime    # sent_at of the most recent message in the conversation
-
-    class Config:
-        from_attributes = True
