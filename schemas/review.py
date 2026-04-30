@@ -23,3 +23,8 @@ class ReviewOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ReportIn(BaseModel):
+    reason: str
+    details: Optional[str] = None

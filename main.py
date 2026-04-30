@@ -18,6 +18,7 @@ from routers.exercises import router as exercises_router
 from routers.notifications import router as notifications_router
 from routers.logs import router as logs_router
 from routers.reviews import router as reviews_router
+from routers.reports import router as reports_router
 from routers.users import router as users_router
 from routers.workouts import router as workouts_router
 
@@ -42,6 +43,7 @@ app.include_router(exercises_router)
 app.include_router(notifications_router)
 app.include_router(logs_router)
 app.include_router(reviews_router)
+app.include_router(reports_router)
 app.include_router(dashboard_router)
 app.include_router(users_router)
 

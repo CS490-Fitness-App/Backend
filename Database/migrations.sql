@@ -279,3 +279,25 @@ END $$
 CALL _mig010() $$
 DROP PROCEDURE IF EXISTS _mig010 $$
 DELIMITER ;
+
+-- -----------------------------------------------------------------------------
+-- Migration 011: Add is_active to users
+-- Supports account deactivate/reactivate flows without deleting the account.
+-- -----------------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS _mig011 $$
+CREATE PROCEDURE _mig011()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'is_active'
+    ) THEN
+        ALTER TABLE users
+            ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE AFTER role;
+    END IF;
+END $$
+CALL _mig011() $$
+DROP PROCEDURE IF EXISTS _mig011 $$
+DELIMITER ;

@@ -76,6 +76,7 @@ def _build_profile_response(db: Session, current_user: User) -> UserProfileOut:
 		last_name=current_user.last_name,
 		profile_picture=current_user.profile_picture,
 		role=current_user.role,
+		is_active=current_user.is_active,
 		created_at=current_user.created_at,
 		last_updated=current_user.last_updated,
 		client_profile=client_profile,
@@ -180,3 +181,41 @@ async def upload_my_profile_picture(
 			previous_file_path.unlink()
 
 	return _build_profile_response(db, current_user)
+
+
+@router.post("/me/deactivate", response_model=UserProfileOut)
+def deactivate_my_account(
+	db: Session = Depends(get_db),
+	current_user: User = Depends(get_current_user),
+):
+	current_user.is_active = False
+	current_user.last_updated = datetime.now(timezone.utc)
+	db.commit()
+	db.refresh(current_user)
+	return _build_profile_response(db, current_user)
+
+
+@router.post("/me/reactivate", response_model=UserProfileOut)
+def reactivate_my_account(
+	db: Session = Depends(get_db),
+	current_user: User = Depends(get_current_user),
+):
+	current_user.is_active = True
+	current_user.last_updated = datetime.now(timezone.utc)
+	db.commit()
+	db.refresh(current_user)
+	return _build_profile_response(db, current_user)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_account(
+	db: Session = Depends(get_db),
+	current_user: User = Depends(get_current_user),
+):
+	if current_user.profile_picture and current_user.profile_picture.startswith("/uploads/profile_pictures/"):
+		previous_file_path = Path(__file__).resolve().parents[1] / current_user.profile_picture.lstrip("/")
+		if previous_file_path.exists():
+			previous_file_path.unlink()
+
+	db.delete(current_user)
+	db.commit()
