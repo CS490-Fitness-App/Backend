@@ -46,8 +46,9 @@ class MessageOut(BaseModel):
 class ConversationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    chat_id:         int         # synthetic conversation identifier
-    coach_user_id:   int
-    client_user_id:  int
-    other_user_name: str
-    created_at:      datetime    # sent_at of the most recent message in the conversation
+    chat_id:                    int         # synthetic conversation identifier
+    coach_user_id:              int
+    client_user_id:             int
+    other_user_name:            str
+    other_user_profile_picture: Optional[str] = None
+    created_at:                 datetime    # sent_at of the most recent message in the conversation

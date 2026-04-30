@@ -125,6 +125,7 @@ def create_or_get_chat(
         coach_user_id=coach_uid,
         client_user_id=client_uid,
         other_user_name=_full_name(other_user),
+        other_user_profile_picture=other_user.profile_picture or None,
         created_at=datetime.now(timezone.utc),
     )
 
@@ -169,6 +170,7 @@ def list_chats(
             coach_user_id=coach_uid,
             client_user_id=client_uid,
             other_user_name=_full_name(other_user),
+            other_user_profile_picture=other_user.profile_picture or None,
             created_at=msg.sent_at,
         )
 
