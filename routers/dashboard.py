@@ -1,14 +1,16 @@
 from datetime import date, timedelta, datetime, time, timezone
 
-from fastapi import APIRouter, Depends
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 
 from sqlalchemy import func
 
 from core.database import get_db
-from dependencies.rbac import require_client, get_current_user
+from dependencies.rbac import require_client, get_current_user, require_coach
 from models.coach import ClientCoach
-from models.log import DailySurvey, MoodType, WeightLog
+from models.log import DailySurvey, Goal, GoalType, MoodType, WeightLog
 from models.review import Review
 from models.user import User, Client, Coach
 from models.workout import Workout, WorkoutLog, ScheduledWorkout, WorkoutPlan
@@ -23,6 +25,22 @@ def _grams_to_pounds(value):
     if value is None:
         return None
     return round(value / 453.592, 1)
+
+
+def _cm_to_ft_in(cm):
+    if cm is None:
+        return None
+    total_inches = cm / 2.54
+    feet = int(total_inches // 12)
+    inches = round(total_inches % 12)
+    return f"{feet}'{inches}\""
+
+
+def _age_from_dob(dob):
+    if dob is None:
+        return None
+    today = date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 
 def _weekday_label(day: date) -> str:
@@ -151,6 +169,7 @@ def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(req
                 )
                 active_coach = {
                     "coach_id": coach.coach_id,
+                    "user_id": coach.user_id,
                     "first_name": coach_user.first_name if coach_user else "",
                     "last_name": coach_user.last_name if coach_user else "",
                     "specialization": specialization,
@@ -224,15 +243,37 @@ def get_client_progress(
     current_user=Depends(get_current_user),
     time_range: str = "weekly",
     selected_month: str | None = None,
+    client_user_id: Optional[int] = Query(None, description="Coach-only: view a specific client's progress by user_id"),
 ):
-    client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+    # If a coach is requesting a client's progress, verify the relationship.
+    if client_user_id is not None and client_user_id != current_user.user_id:
+        coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+        if not coach:
+            raise HTTPException(status_code=403, detail="Only coaches can view other users' progress.")
+        target_client = db.query(Client).filter(Client.user_id == client_user_id).first()
+        if not target_client:
+            raise HTTPException(status_code=404, detail="Client not found.")
+        rel = db.query(ClientCoach).filter(
+            ClientCoach.coach_id == coach.coach_id,
+            ClientCoach.client_id == target_client.client_id,
+            ClientCoach.status_name == "Active",
+        ).first()
+        if not rel:
+            raise HTTPException(status_code=403, detail="You do not have an active relationship with this client.")
+        target_user_id = client_user_id
+    else:
+        target_user_id = current_user.user_id
+
+    client = db.query(Client).filter(Client.user_id == target_user_id).first()
+    target_user = db.query(User).filter(User.user_id == target_user_id).first()
+    client_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip() if target_user else None
 
     today = date.today()
 
     # Build a list of months where the user has logged weight data.
     month_rows = (
         db.query(func.date_format(WeightLog.created_at, "%Y-%m").label("month_key"))
-        .filter(WeightLog.user_id == current_user.user_id)
+        .filter(WeightLog.user_id == target_user_id)
         .distinct()
         .order_by(func.date_format(WeightLog.created_at, "%Y-%m").desc())
         .all()
@@ -276,7 +317,7 @@ def get_client_progress(
 
     weight_logs = (
         db.query(WeightLog)
-        .filter(WeightLog.user_id == current_user.user_id)
+        .filter(WeightLog.user_id == target_user_id)
         .order_by(WeightLog.created_at.desc())
         .all()
     )
@@ -326,7 +367,7 @@ def get_client_progress(
         db.query(DailySurvey, MoodType)
         .outerjoin(MoodType, DailySurvey.mood_type_id == MoodType.mood_type_id)
         .filter(
-            DailySurvey.user_id == current_user.user_id,
+            DailySurvey.user_id == target_user_id,
             DailySurvey.survey_date >= week_start,
             DailySurvey.survey_date <= today,
         )
@@ -386,7 +427,7 @@ def get_client_progress(
     start_weight_log = (
         db.query(WeightLog)
         .filter(
-            WeightLog.user_id == current_user.user_id,
+            WeightLog.user_id == target_user_id,
             WeightLog.created_at >= datetime.combine(month_start, time.min).replace(tzinfo=timezone.utc),
             WeightLog.created_at < datetime.combine(month_start + timedelta(days=1), time.min).replace(tzinfo=timezone.utc)
         )
@@ -423,7 +464,88 @@ def get_client_progress(
                 progress_message = f"Below goal by {abs(current_distance)} lb"
                 progress_percent = 0
 
+    # Current assigned workout plan
+    current_workout = (
+        db.query(Workout)
+        .filter(Workout.assigned_to == target_user_id)
+        .order_by(Workout.last_updated.desc())
+        .first()
+    )
+    weeks_completed_plan = 0
+    if current_workout:
+        plan_rows = db.query(WorkoutPlan).filter(WorkoutPlan.workout_id == current_workout.workout_id).all()
+        if plan_rows:
+            weeks_completed_plan = max((row.weeks_completed or 0) for row in plan_rows)
+
+    latest_workout_log = None
+    if client:
+        latest_workout_log = (
+            db.query(WorkoutLog)
+            .filter(WorkoutLog.client_id == client.client_id)
+            .order_by(WorkoutLog.logged_at.desc())
+            .first()
+        )
+
+    # Scheduled workouts for calendar (past 30 days → next 90 days)
+    cal_start = today - timedelta(days=30)
+    cal_end = today + timedelta(days=90)
+    scheduled_rows = (
+        db.query(ScheduledWorkout)
+        .options(joinedload(ScheduledWorkout.workout))
+        .filter(
+            ScheduledWorkout.user_id == target_user_id,
+            ScheduledWorkout.scheduled_date >= cal_start,
+            ScheduledWorkout.scheduled_date <= cal_end,
+        )
+        .order_by(ScheduledWorkout.scheduled_date)
+        .all()
+    )
+    calendar_events = [
+        {
+            "date": sw.scheduled_date.isoformat(),
+            "workout_name": sw.workout.name if sw.workout else "Unknown",
+            "workout_id": sw.workout_id,
+            "status": sw.status,
+        }
+        for sw in scheduled_rows
+    ]
+
+    # Goals
+    goals_rows = (
+        db.query(Goal, GoalType)
+        .join(GoalType, GoalType.goal_type_id == Goal.goal_type_id)
+        .filter(Goal.user_id == target_user_id)
+        .order_by(Goal.created_at.asc())
+        .all()
+    )
+    goals = [{"goal_type": gt.goal_type_name, "set_on": g.created_at.date().isoformat()} for g, gt in goals_rows]
+
+    # Weight history (last 20 entries, most recent first)
+    weight_history = [
+        {
+            "date": log.created_at.date().isoformat(),
+            "weight_lb": _grams_to_pounds(log.weight),
+        }
+        for log in weight_logs[:20]
+    ]
+
     return {
+        "client_name": client_name,
+        "summary": {
+            "weekly_streak": client.weekly_streak if client else 0,
+            "current_plan_name": current_workout.name if current_workout else None,
+            "weeks_completed": weeks_completed_plan,
+            "intended_duration_weeks": current_workout.intended_duration_weeks if current_workout else None,
+            "last_workout_date": latest_workout_log.logged_at.strftime("%b %d, %Y") if latest_workout_log else None,
+            "current_weight_lb": current_weight_lb,
+            "goal_weight_lb": goal_weight_lb,
+            "height": _cm_to_ft_in(client.height) if client else None,
+            "age": _age_from_dob(client.DOB) if client else None,
+            "sex": client.sex if client else None,
+        },
+        "goals": goals,
+        "weight_history": weight_history,
+        "calendar_events": calendar_events,
         "weight_chart": {
             "current_weight_lb": current_weight_lb,
             "goal_weight_lb": goal_weight_lb,

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from uuid import uuid4
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -30,12 +30,18 @@ def _build_profile_response(db: Session, current_user: User) -> UserProfileOut:
 	coach_profile = None
 	admin_profile = None
 
+	def _calculate_age(dob: date | None) -> int | None:
+		if not dob:
+			return None
+		today = date.today()
+		return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
 	client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
 	if client:
 		goals = db.query(Goal).filter(Goal.user_id == current_user.user_id).all()
 		client_profile = ClientProfileOut(
 			client_id=client.client_id,
-			DOB=client.DOB,
+			age=_calculate_age(client.DOB),
 			height=client.height,
 			weight=client.weight,
 			goal_weight=client.goal_weight,

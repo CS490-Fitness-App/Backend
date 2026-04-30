@@ -1,7 +1,7 @@
 # Pydantic schemas for user and client profile data: creation, updates, and API responses.
 
 from typing import Optional
-from datetime import date, datetime
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 
@@ -24,7 +24,7 @@ class UsersListOut(BaseModel):
 
 class ClientProfileOut(BaseModel):
     client_id: int
-    DOB: Optional[date]
+    age: Optional[int]
     height: Optional[int]
     weight: Optional[int]
     goal_weight: Optional[int]
