@@ -3,7 +3,7 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ReviewIn(BaseModel):
@@ -12,6 +12,8 @@ class ReviewIn(BaseModel):
 
 
 class ReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     review_id: int
     coach_id: int
     rating: int
@@ -19,5 +21,6 @@ class ReviewOut(BaseModel):
     created_at: datetime
     client_name: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+class ReportIn(BaseModel):
+    reason: str
+    details: Optional[str] = None

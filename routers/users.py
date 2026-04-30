@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from uuid import uuid4
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -30,12 +30,18 @@ def _build_profile_response(db: Session, current_user: User) -> UserProfileOut:
 	coach_profile = None
 	admin_profile = None
 
+	def _calculate_age(dob: date | None) -> int | None:
+		if not dob:
+			return None
+		today = date.today()
+		return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
 	client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
 	if client:
 		goals = db.query(Goal).filter(Goal.user_id == current_user.user_id).all()
 		client_profile = ClientProfileOut(
 			client_id=client.client_id,
-			DOB=client.DOB,
+			age=_calculate_age(client.DOB),
 			height=client.height,
 			weight=client.weight,
 			goal_weight=client.goal_weight,
@@ -70,6 +76,7 @@ def _build_profile_response(db: Session, current_user: User) -> UserProfileOut:
 		last_name=current_user.last_name,
 		profile_picture=current_user.profile_picture,
 		role=current_user.role,
+		is_active=current_user.is_active,
 		created_at=current_user.created_at,
 		last_updated=current_user.last_updated,
 		client_profile=client_profile,
@@ -174,3 +181,41 @@ async def upload_my_profile_picture(
 			previous_file_path.unlink()
 
 	return _build_profile_response(db, current_user)
+
+
+@router.post("/me/deactivate", response_model=UserProfileOut)
+def deactivate_my_account(
+	db: Session = Depends(get_db),
+	current_user: User = Depends(get_current_user),
+):
+	current_user.is_active = False
+	current_user.last_updated = datetime.now(timezone.utc)
+	db.commit()
+	db.refresh(current_user)
+	return _build_profile_response(db, current_user)
+
+
+@router.post("/me/reactivate", response_model=UserProfileOut)
+def reactivate_my_account(
+	db: Session = Depends(get_db),
+	current_user: User = Depends(get_current_user),
+):
+	current_user.is_active = True
+	current_user.last_updated = datetime.now(timezone.utc)
+	db.commit()
+	db.refresh(current_user)
+	return _build_profile_response(db, current_user)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_account(
+	db: Session = Depends(get_db),
+	current_user: User = Depends(get_current_user),
+):
+	if current_user.profile_picture and current_user.profile_picture.startswith("/uploads/profile_pictures/"):
+		previous_file_path = Path(__file__).resolve().parents[1] / current_user.profile_picture.lstrip("/")
+		if previous_file_path.exists():
+			previous_file_path.unlink()
+
+	db.delete(current_user)
+	db.commit()

@@ -62,6 +62,10 @@ class WorkoutDetailOut(WorkoutOut):
     exercises: List[WorkoutExerciseOut] = []
 
 
+class AssignWorkoutIn(BaseModel):
+    client_user_id: int    # user_id of the client to assign this workout to
+
+
 class ScheduledWorkoutIn(BaseModel):
     scheduled_date: date
     client_user_id: Optional[int] = None    # coaches only: schedule on behalf of a client
