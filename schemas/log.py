@@ -101,3 +101,87 @@ class DailyCheckInStatusOut(BaseModel):
 class LogsOut(BaseModel):
     workout_logs: list[WorkoutLogOut]
     daily_survey: Optional[DailySurveyOut]
+
+
+# ── Activity Day endpoint schemas ──────────────────────────────────────────────
+
+class ExercisePlanOut(BaseModel):
+    exercise_id: int
+    exercise_name: str
+    category_name: Optional[str]
+    allow_weight_input: bool
+    sets: Optional[int]
+    target_value: Optional[float]
+    unit_name: Optional[str]
+    rest: Optional[int]
+
+
+class ScheduledWorkoutDetailOut(BaseModel):
+    workout_id: int
+    name: str
+    workout_time_mins: Optional[int]
+    exercises: list[ExercisePlanOut]
+
+
+class SetResultDetailOut(BaseModel):
+    exercise_id: Optional[int]
+    exercise_name: Optional[str]
+    actual_weight: Optional[float]
+    actual_value: Optional[float]
+    skipped: bool
+
+
+class LoggedWorkoutDetailOut(BaseModel):
+    workout_id: int
+    workout_name: str
+    set_results: list[SetResultDetailOut]
+
+
+class DailySurveyActivityOut(BaseModel):
+    step_count: Optional[int]
+    calories_intake: Optional[int]
+    calories_burned: Optional[int]
+    water_intake: Optional[int]
+    weight_lb: Optional[float]
+    mood_label: Optional[str]
+    notes: Optional[str]
+
+
+class MoodOptionOut(BaseModel):
+    mood_label: str
+
+
+class ActivityDayOut(BaseModel):
+    daily_survey: Optional[DailySurveyActivityOut]
+    mood_options: list[MoodOptionOut]
+    scheduled_workouts: list[ScheduledWorkoutDetailOut]
+    logged_workouts: list[LoggedWorkoutDetailOut]
+    has_logged_data: bool
+    can_delete: bool
+
+
+class SetResultActivityIn(BaseModel):
+    exercise_id: int
+    skipped: bool = False
+    actual_weight: Optional[float] = None
+    actual_value: Optional[float] = None
+
+
+class WorkoutLogActivityIn(BaseModel):
+    workout_id: int
+    set_results: list[SetResultActivityIn]
+
+
+class DailySurveyActivityIn(BaseModel):
+    step_count: Optional[int] = None
+    calories_intake: Optional[int] = None
+    calories_burned: Optional[int] = None
+    water_intake: Optional[int] = None
+    weight_lb: Optional[float] = None
+    mood_label: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ActivityDayIn(BaseModel):
+    daily_survey: Optional[DailySurveyActivityIn] = None
+    workout_logs: list[WorkoutLogActivityIn] = []

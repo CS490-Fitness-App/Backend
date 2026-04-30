@@ -8,10 +8,10 @@ from core.database import get_db
 from models.review import Review
 from schemas.review import ReviewOut
 
-router = APIRouter(prefix="/reviews", tags=["reviews"], redirect_slashes=False)
+router = APIRouter(prefix="/coaches", tags=["reviews"], redirect_slashes=False)
 
 
-@router.get("/{coach_id}", response_model=list[ReviewOut])
+@router.get("/{coach_id}/reviews", response_model=list[ReviewOut])
 def get_coach_reviews(
     coach_id: int,
     limit: Optional[int] = None,
