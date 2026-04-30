@@ -3,7 +3,12 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class ReviewIn(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    description: Optional[str] = None
 
 
 class ReviewOut(BaseModel):
@@ -12,6 +17,7 @@ class ReviewOut(BaseModel):
     rating: int
     description: Optional[str] = None
     created_at: datetime
+    client_name: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -472,6 +472,7 @@ def get_coach_clients(
     for cc, client, user in rows:
         entry = ClientEntry(
             client_id=client.client_id,
+            user_id=user.user_id,
             first_name=user.first_name,
             last_name=user.last_name,
             profile_picture=user.profile_picture,

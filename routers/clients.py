@@ -45,9 +45,10 @@ def register_client(
         )
         db.add(client)
 
+    # flush so SQLAlchemy assigns client.client_id before creating related rows
     db.flush()
 
-    # replace goals from the survey
+    # replace goals with the survey selection
     db.query(Goal).filter(Goal.user_id == current_user.user_id).delete()
     for gid in data.goal_type_ids:
         db.add(Goal(user_id=current_user.user_id, goal_type_id=gid))
