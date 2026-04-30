@@ -814,7 +814,7 @@ def get_activity_day(
 
 @router.put("/activity-day", response_model=ActivityDayOut)
 def upsert_activity_day(
-    data: ActivityDayIn,
+    data: ActivityDayUpdateIn,
     date: date | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(require_client),

@@ -203,6 +203,6 @@ class ActivityWorkoutLogIn(BaseModel):
     set_results: list[ActivityWorkoutSetIn] = []
 
 
-class ActivityDayIn(BaseModel):
+class ActivityDayUpdateIn(BaseModel):
     daily_survey: Optional[ActivityDaySurveyIn] = None
     workout_logs: list[ActivityWorkoutLogIn] = []
