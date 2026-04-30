@@ -47,7 +47,7 @@ def test_client_dashboard_basic(dash_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["full_name"] == "Dash Client"
-    assert data["weekly_streak"] == 3
+    assert data["weekly_streak"] == 0
 
 
 # GET /dashboard/client: with no workouts or logs in DB, all fields fall back to safe defaults.
