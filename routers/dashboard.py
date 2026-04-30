@@ -140,7 +140,21 @@ def get_client_dashboard(db: Session = Depends(get_db), current_user=Depends(req
     current_weight_grams = latest_weight_log.weight if latest_weight_log else (client.weight if client else None)
     current_weight_lb = _grams_to_pounds(current_weight_grams)
     goal_weight_lb = _grams_to_pounds(client.goal_weight) if client else None
-    weekly_streak = client.weekly_streak if client else 0
+
+    # Count distinct days this calendar week (Mon–Sun) with a workout log
+    week_monday = today - timedelta(days=today.weekday())
+    week_sunday = week_monday + timedelta(days=6)
+    weekly_streak = 0
+    if client:
+        weekly_streak = (
+            db.query(func.count(func.distinct(func.date(WorkoutLog.logged_at))))
+            .filter(
+                WorkoutLog.client_id == client.client_id,
+                func.date(WorkoutLog.logged_at) >= week_monday,
+                func.date(WorkoutLog.logged_at) <= week_sunday,
+            )
+            .scalar()
+        ) or 0
 
     recent_activity = "No recent activity."
     if latest_log:
@@ -529,10 +543,26 @@ def get_client_progress(
         for log in weight_logs[:20]
     ]
 
+    # Count distinct days this calendar week (Mon–Sun) where the client has a workout log
+    week_monday = today - timedelta(days=today.weekday())
+    week_sunday = week_monday + timedelta(days=6)
+    days_logged_this_week = 0
+    if client:
+        days_logged_this_week = (
+            db.query(func.count(func.distinct(func.date(WorkoutLog.logged_at))))
+            .filter(
+                WorkoutLog.client_id == client.client_id,
+                func.date(WorkoutLog.logged_at) >= week_monday,
+                func.date(WorkoutLog.logged_at) <= week_sunday,
+            )
+            .scalar()
+        ) or 0
+
     return {
         "client_name": client_name,
         "summary": {
             "weekly_streak": client.weekly_streak if client else 0,
+            "days_logged_this_week": days_logged_this_week,
             "current_plan_name": current_workout.name if current_workout else None,
             "weeks_completed": weeks_completed_plan,
             "intended_duration_weeks": current_workout.intended_duration_weeks if current_workout else None,
