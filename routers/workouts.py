@@ -152,6 +152,35 @@ def list_workouts(
     return [_to_out(w) for w in workouts]
 
 
+# Public browse endpoint used by the non-auth workouts page
+@router.get("/public", response_model=List[WorkoutOut])
+def list_public_workouts(
+    name: Optional[str] = Query(None),
+    goal_type_id: Optional[int] = Query(None),
+    experience_level_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    query = (
+        db.query(Workout)
+        .options(
+            joinedload(Workout.experience_level),
+            joinedload(Workout.goal_type),
+        )
+    )
+
+    if name:
+        query = query.filter(Workout.name.ilike(f"%{name}%"))
+
+    if goal_type_id:
+        query = query.filter(Workout.goal_type_id == goal_type_id)
+
+    if experience_level_id:
+        query = query.filter(Workout.experience_level_id == experience_level_id)
+
+    workouts = query.all()
+    return [_to_out(w) for w in workouts]
+
+
 # Get the current user's saved/bookmarked workouts
 # NOTE: must be declared BEFORE /{workout_id} so FastAPI doesn't match "saved" as an integer ID
 @router.get("/saved", response_model=List[WorkoutOut])
