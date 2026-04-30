@@ -1,13 +1,14 @@
+from datetime import date
+
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 
 from core.database import get_db
-from dependencies.rbac import require_client
+from dependencies.rbac import require_client,get_current_user
 from main import app
 from models.log import Goal, GoalType
 from models.user import User, Client
-
 
 @pytest.fixture
 def client_actor(db):
@@ -28,7 +29,7 @@ def survey_client(db, client_actor):
     def _override_get_db():
         yield db
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[require_client] = lambda: mock_user
+    app.dependency_overrides[get_current_user] = lambda: mock_user
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
@@ -44,7 +45,15 @@ def test_register_client_new(survey_client):
 
 # POST /users/register: registering twice for the same user returns 409.
 def test_register_client_duplicate(db, client_actor):
-    existing_client = Client(user_id=client_actor.user_id, weekly_streak=0)
+    existing_client = Client(
+        user_id=client_actor.user_id,
+        weekly_streak=0,
+        DOB=date(1990, 1, 1),
+        height=170,
+        weight=70000,
+        goal_weight=65000,
+        sex="female",
+    )
     db.add(existing_client)
     db.flush()
 
@@ -56,7 +65,7 @@ def test_register_client_duplicate(db, client_actor):
     def _override_get_db():
         yield db
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[require_client] = lambda: mock_user
+    app.dependency_overrides[get_current_user] = lambda: mock_user
     with TestClient(app) as c:
         resp = c.post("/users/register", json={"goal_type_ids": []})
     app.dependency_overrides.clear()
