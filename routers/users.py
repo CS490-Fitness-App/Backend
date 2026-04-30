@@ -69,12 +69,19 @@ def _build_profile_response(db: Session, current_user: User) -> UserProfileOut:
 	if admin:
 		admin_profile = AdminProfileOut(admin_id=admin.admin_id)
 
+	normalized_profile_picture = _normalize_profile_picture_reference(current_user.profile_picture)
+	if normalized_profile_picture != current_user.profile_picture:
+		current_user.profile_picture = normalized_profile_picture
+		current_user.last_updated = datetime.now(timezone.utc)
+		db.commit()
+		db.refresh(current_user)
+
 	return UserProfileOut(
 		user_id=current_user.user_id,
 		email=current_user.email,
 		first_name=current_user.first_name,
 		last_name=current_user.last_name,
-		profile_picture=current_user.profile_picture,
+		profile_picture=normalized_profile_picture,
 		role=current_user.role,
 		is_active=current_user.is_active,
 		created_at=current_user.created_at,
@@ -83,6 +90,31 @@ def _build_profile_response(db: Session, current_user: User) -> UserProfileOut:
 		coach_profile=coach_profile,
 		admin_profile=admin_profile,
 	)
+
+
+def _normalize_profile_picture_reference(value: str | None) -> str | None:
+	if not value:
+		return None
+
+	normalized = value.strip()
+	if not normalized:
+		return None
+
+	if normalized.startswith("uploads/profile_pictures/"):
+		return f"/{normalized}"
+
+	if normalized.startswith("/uploads/profile_pictures/"):
+		return normalized
+
+	lower = normalized.lower()
+	if lower.startswith("http://") or lower.startswith("https://"):
+		return normalized
+
+	# Reject raw payload values (data URLs, blob URLs, bytes literals, etc.).
+	if lower.startswith("data:") or lower.startswith("blob:") or normalized.startswith("b'") or normalized.startswith('b"'):
+		return None
+
+	return None
 
 
 @router.get("/me", response_model=UserProfileOut)

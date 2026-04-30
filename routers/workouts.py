@@ -68,6 +68,10 @@ def _to_out(w: Workout) -> WorkoutOut:
     )
 
 
+def _to_detail_out(w: Workout, db: Session) -> WorkoutDetailOut:
+    return WorkoutDetailOut(**_to_out(w).model_dump(), exercises=_get_exercises(w.workout_id, db))
+
+
 def _get_exercises(workout_id: int, db: Session) -> List[WorkoutExerciseOut]:
     """Fetch all exercises in a workout, ordered by their position in the plan."""
     plans = (
@@ -181,6 +185,13 @@ def list_public_workouts(
     return [_to_out(w) for w in workouts]
 
 
+# Public detail endpoint for viewing workout content from the public library.
+@router.get("/public/{workout_id}", response_model=WorkoutDetailOut)
+def get_public_workout(workout_id: int, db: Session = Depends(get_db)):
+    w = _get_or_404(workout_id, db)
+    return _to_detail_out(w, db)
+
+
 # Get the current user's saved/bookmarked workouts
 # NOTE: must be declared BEFORE /{workout_id} so FastAPI doesn't match "saved" as an integer ID
 @router.get("/saved", response_model=List[WorkoutOut])
@@ -242,7 +253,7 @@ def list_scheduled_workouts(
 def get_workout(workout_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     w = _get_or_404(workout_id, db)
     _require_workout_access(w, current_user)
-    return WorkoutDetailOut(**_to_out(w).model_dump(), exercises=_get_exercises(workout_id, db))
+    return _to_detail_out(w, db)
 
 
 # Create a workout and its exercises in one request (frontend submits everything on save)
@@ -269,7 +280,7 @@ def create_workout(data: WorkoutIn, db: Session = Depends(get_db), current_user=
     db.commit()
 
     w = _get_or_404(workout.workout_id, db)
-    return WorkoutDetailOut(**_to_out(w).model_dump(), exercises=_get_exercises(workout.workout_id, db))
+    return _to_detail_out(w, db)
 
 
 # Replace a workout's metadata and full exercise list
@@ -298,7 +309,7 @@ def update_workout(workout_id: int, data: WorkoutIn, db: Session = Depends(get_d
     db.commit()
 
     w = _get_or_404(workout_id, db)
-    return WorkoutDetailOut(**_to_out(w).model_dump(), exercises=_get_exercises(workout_id, db))
+    return _to_detail_out(w, db)
 
 
 # Assign an existing workout to a client — coach only, requires active relationship

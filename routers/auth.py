@@ -36,6 +36,31 @@ def _find_user_by_email(db: Session, email: str | None) -> User | None:
     return db.query(User).filter(func.lower(User.email) == normalized_email).first()
 
 
+def _normalize_profile_picture_reference(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    if normalized.startswith("uploads/profile_pictures/"):
+        return f"/{normalized}"
+
+    if normalized.startswith("/uploads/profile_pictures/"):
+        return normalized
+
+    lower = normalized.lower()
+    if lower.startswith("http://") or lower.startswith("https://"):
+        return normalized
+
+    # Reject non-reference payloads like base64/blob/bytes literals.
+    if lower.startswith("data:") or lower.startswith("blob:") or normalized.startswith("b'") or normalized.startswith('b"'):
+        return None
+
+    return None
+
+
 def _auth_user_out(user: User, is_new_user: bool) -> AuthUserOut:
     return AuthUserOut(
         user_id=user.user_id,
@@ -113,6 +138,7 @@ def create_account(
         )
 
     email = _normalize_email(payload.email or claims.get("email"))
+    profile_picture = _normalize_profile_picture_reference(payload.profile_picture)
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -124,7 +150,7 @@ def create_account(
         email=email,
         first_name=payload.first_name,
         last_name=payload.last_name,
-        profile_picture=payload.profile_picture,
+        profile_picture=profile_picture,
         role=payload.role,
         created_at=_now(),
         last_active_at=_now(),
@@ -172,6 +198,7 @@ def login_or_sync_account(
 ):
     # call whenever, will create user or retreive them
     auth0_sub = claims["sub"]
+    profile_picture = _normalize_profile_picture_reference(payload.profile_picture)
     user = db.query(User).filter(User.auth0_sub == auth0_sub).first()
 
     if not user:
@@ -190,8 +217,8 @@ def login_or_sync_account(
                 existing_email_user.first_name = payload.first_name
             if payload.last_name and not existing_email_user.last_name:
                 existing_email_user.last_name = payload.last_name
-            if payload.profile_picture and not existing_email_user.profile_picture:
-                existing_email_user.profile_picture = payload.profile_picture
+            if profile_picture and not existing_email_user.profile_picture:
+                existing_email_user.profile_picture = profile_picture
             now = _now()
             existing_email_user.last_active_at = now
             existing_email_user.last_updated = now
@@ -209,7 +236,7 @@ def login_or_sync_account(
             email=email,
             first_name=payload.first_name,
             last_name=payload.last_name,
-            profile_picture=payload.profile_picture,
+            profile_picture=profile_picture,
             role=payload.role,
             created_at=_now(),
             last_active_at=_now(),
@@ -234,8 +261,8 @@ def login_or_sync_account(
         user.first_name = payload.first_name
     if payload.last_name and not user.last_name:
         user.last_name = payload.last_name
-    if payload.profile_picture and not user.profile_picture:
-        user.profile_picture = payload.profile_picture
+    if profile_picture and not user.profile_picture:
+        user.profile_picture = profile_picture
 
     now = _now()
     user.last_active_at = now

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from core.database import get_db
 from dependencies.rbac import require_client
-from models.log import DailySurvey, Goal, MoodType, UserDailyEngagement, WeightLog
+from models.log import DailySurvey, Goal, Goal, MoodType, UserDailyEngagement, WeightLog
 from models.user import Client
 from models.workout import ScheduledWorkout, Workout, WorkoutLog, WorkoutPlan, SetResult
 from schemas.log import (
@@ -678,6 +678,253 @@ def create_daily_checkin(
         "daily_survey": DailySurveyOut.model_validate(survey),
         "weight_logged_lb": weight_logged_lb,
     }
+
+
+def _build_activity_day_response(db: Session, current_user, target_date: date) -> dict:
+    client = current_user.client
+    today = _current_utc_date()
+
+    survey = db.query(DailySurvey).filter(
+        DailySurvey.user_id == current_user.user_id,
+        DailySurvey.survey_date == target_date,
+    ).first()
+
+    weight_log = (
+        db.query(WeightLog)
+        .filter(
+            WeightLog.user_id == current_user.user_id,
+            func.date(WeightLog.created_at) == target_date,
+        )
+        .order_by(WeightLog.created_at.desc())
+        .first()
+    )
+    weight_lb = round(weight_log.weight / _LB_TO_GRAMS, 1) if weight_log else None
+
+    daily_survey_out = None
+    if survey:
+        daily_survey_out = {
+            "survey_id": survey.survey_id,
+            "survey_date": survey.survey_date,
+            "mood_type_id": survey.mood_type_id,
+            "mood_label": survey.mood_type.mood_type_name if survey.mood_type else _DEFAULT_MOOD_LABEL,
+            "step_count": survey.step_count,
+            "calories_intake": survey.calories_intake,
+            "calories_burned": survey.calories_burned,
+            "water_intake": survey.water_intake,
+            "notes": survey.notes,
+            "weight_lb": weight_lb,
+        }
+
+    mood_options = [
+        {"mood_type_id": m.mood_type_id, "mood_label": m.mood_type_name}
+        for m in db.query(MoodType).all()
+    ]
+
+    goals = [
+        {"goal_id": g.goal_id, "goal_type_name": g.goal_type.goal_type_name}
+        for g in db.query(Goal).filter(Goal.user_id == current_user.user_id).all()
+    ]
+
+    scheduled = db.query(ScheduledWorkout).filter(
+        ScheduledWorkout.user_id == current_user.user_id,
+        ScheduledWorkout.scheduled_date == target_date,
+    ).all()
+
+    scheduled_workouts_out = []
+    for sw in scheduled:
+        workout = sw.workout
+        plans = (
+            db.query(WorkoutPlan)
+            .filter(WorkoutPlan.workout_id == workout.workout_id)
+            .order_by(WorkoutPlan.order_in_workout)
+            .all()
+        )
+        exercises_out = [
+            {
+                "exercise_id": plan.exercise.exercise_id,
+                "exercise_name": plan.exercise.name,
+                "category_name": plan.exercise.category.category_name if plan.exercise.category else None,
+                "allow_weight_input": True,
+                "skipped": False,
+                "sets": plan.sets,
+                "target_value": float(plan.target_value) if plan.target_value is not None else None,
+                "unit_name": plan.unit.unit_name if plan.unit else None,
+                "rest": plan.rest,
+            }
+            for plan in plans
+        ]
+        scheduled_workouts_out.append({
+            "workout_id": workout.workout_id,
+            "name": workout.name,
+            "scheduled_date": sw.scheduled_date,
+            "status": sw.status,
+            "workout_time_mins": workout.workout_time_mins,
+            "image_url": workout.image_url,
+            "exercises": exercises_out,
+        })
+
+    workout_logs = db.query(WorkoutLog).filter(
+        WorkoutLog.client_id == client.client_id,
+        func.date(WorkoutLog.logged_at) == target_date,
+    ).all()
+
+    logged_workouts_out = [
+        {
+            "workout_log_id": log.workout_log_id,
+            "workout_id": log.workout_id,
+            "workout_name": log.workout.name,
+            "status": "Completed",
+            "logged_at": log.logged_at,
+            "set_results": [
+                {
+                    "exercise_id": sr.exercise_id,
+                    "exercise_name": sr.exercise.name if sr.exercise else None,
+                    "skipped": False,
+                    "actual_weight": float(sr.actual_weight) if sr.actual_weight is not None else None,
+                    "actual_value": float(sr.actual_value) if sr.actual_value is not None else None,
+                }
+                for sr in log.set_results
+            ],
+        }
+        for log in workout_logs
+    ]
+
+    has_logged_data = survey is not None or len(workout_logs) > 0
+    return {
+        "date": target_date,
+        "is_today": target_date == today,
+        "can_delete": has_logged_data and target_date == today,
+        "has_logged_data": has_logged_data,
+        "mood_options": mood_options,
+        "goals": goals,
+        "scheduled_workouts": scheduled_workouts_out,
+        "logged_workouts": logged_workouts_out,
+        "daily_survey": daily_survey_out,
+    }
+
+
+@router.get("/activity-day", response_model=ActivityDayOut)
+def get_activity_day(
+    date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    return _build_activity_day_response(db, current_user, date or _current_utc_date())
+
+
+@router.put("/activity-day", response_model=ActivityDayOut)
+def upsert_activity_day(
+    data: ActivityDayUpdateIn,
+    date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    target_date = date or _current_utc_date()
+    client = current_user.client
+
+    if data.daily_survey:
+        survey = db.query(DailySurvey).filter(
+            DailySurvey.user_id == current_user.user_id,
+            DailySurvey.survey_date == target_date,
+        ).first()
+
+        if not survey:
+            survey = DailySurvey(
+                user_id=current_user.user_id,
+                survey_date=target_date,
+                mood_type_id=_resolve_mood_type_id(db, data.daily_survey.mood_label),
+            )
+            db.add(survey)
+        else:
+            if data.daily_survey.mood_label:
+                survey.mood_type_id = _resolve_mood_type_id(db, data.daily_survey.mood_label)
+
+        survey.step_count = data.daily_survey.step_count
+        survey.calories_intake = data.daily_survey.calories_intake
+        survey.calories_burned = data.daily_survey.calories_burned
+        survey.water_intake = data.daily_survey.water_intake
+        survey.notes = data.daily_survey.notes
+
+        if data.daily_survey.weight_lb is not None:
+            weight_grams = int(round(data.daily_survey.weight_lb * _LB_TO_GRAMS))
+            existing_weight = (
+                db.query(WeightLog)
+                .filter(
+                    WeightLog.user_id == current_user.user_id,
+                    func.date(WeightLog.created_at) == target_date,
+                )
+                .first()
+            )
+            if existing_weight:
+                existing_weight.weight = weight_grams
+            else:
+                db.add(WeightLog(user_id=current_user.user_id, weight=weight_grams))
+            if client:
+                client.weight = weight_grams
+                client.last_updated = datetime.now(timezone.utc)
+
+    for wl_data in data.workout_logs:
+        existing_log = db.query(WorkoutLog).filter(
+            WorkoutLog.client_id == client.client_id,
+            WorkoutLog.workout_id == wl_data.workout_id,
+            func.date(WorkoutLog.logged_at) == target_date,
+        ).first()
+
+        if existing_log:
+            for sr in existing_log.set_results:
+                db.delete(sr)
+            db.flush()
+            log = existing_log
+        else:
+            log = WorkoutLog(workout_id=wl_data.workout_id, client_id=client.client_id)
+            db.add(log)
+            db.flush()
+
+        for sr_data in wl_data.set_results:
+            db.add(SetResult(
+                workout_log_id=log.workout_log_id,
+                exercise_id=sr_data.exercise_id,
+                actual_weight=sr_data.actual_weight,
+                actual_value=sr_data.actual_value,
+            ))
+
+    db.commit()
+    return _build_activity_day_response(db, current_user, target_date)
+
+
+@router.delete("/activity-day", response_model=ActivityDayOut)
+def delete_activity_day(
+    date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    target_date = date or _current_utc_date()
+    if target_date != _current_utc_date():
+        raise HTTPException(status_code=403, detail="You can only delete today's activity log.")
+
+    client = current_user.client
+
+    survey = db.query(DailySurvey).filter(
+        DailySurvey.user_id == current_user.user_id,
+        DailySurvey.survey_date == target_date,
+    ).first()
+    if survey:
+        db.delete(survey)
+
+    for wl in db.query(WeightLog).filter(
+        WeightLog.user_id == current_user.user_id,
+        func.date(WeightLog.created_at) == target_date,
+    ).all():
+        db.delete(wl)
+
+    for wl in db.query(WorkoutLog).filter(
+        WorkoutLog.client_id == client.client_id,
+        func.date(WorkoutLog.logged_at) == target_date,
+    ).all():
+        db.delete(wl)
+
+    db.commit()
+    return _build_activity_day_response(db, current_user, target_date)
 
 
 # GET /logs?userId=&date= — return workout logs and daily survey for a user on a given date

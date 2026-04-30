@@ -105,6 +105,8 @@ class LogsOut(BaseModel):
     daily_survey: Optional[DailySurveyOut]
 
 
+# ── Activity Day endpoint schemas ──────────────────────────────────────────────
+
 class MoodOptionOut(BaseModel):
     mood_type_id: int
     mood_label: str
