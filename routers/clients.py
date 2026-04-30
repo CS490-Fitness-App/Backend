@@ -8,12 +8,11 @@ from sqlalchemy.orm import Session
 
 from core.database import get_db
 from dependencies.rbac import require_client, get_current_user
-from models.user import Client
+from models.user import Client, User
 from models.log import Goal, GoalType
 
 from schemas.client import ClientRegisterIn, ClientOut
 from schemas.log import GoalOut
-
 
 def _age(dob) -> Optional[int]:
     if dob is None:
@@ -54,8 +53,26 @@ def register_client(
         if not db.query(GoalType).filter(GoalType.goal_type_id == gid).first():
             raise HTTPException(status_code=404, detail=f"Invalid goal_type_id: {gid}")
 
-    # _ensure_role_record() creates an empty Client row on first login, so upsert
+    # _ensure_role_record() creates an empty Client row on first login, so upsert only for blank records
     client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+    already_registered = False
+    if client:
+        has_profile_data = any(
+            value is not None
+            for value in (
+                client.DOB,
+                client.height,
+                client.weight,
+                client.goal_weight,
+                client.sex,
+            )
+        )
+        has_goals = db.query(Goal).filter(Goal.user_id == current_user.user_id).first() is not None
+        already_registered = has_profile_data or has_goals
+
+    if client and already_registered:
+        raise HTTPException(status_code=409, detail="Client has already completed registration.")
+
     if client:
         client.DOB = data.DOB
         client.height = data.height

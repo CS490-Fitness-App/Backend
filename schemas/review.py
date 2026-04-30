@@ -21,10 +21,6 @@ class ReviewOut(BaseModel):
     created_at: datetime
     client_name: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-
-
 class ReportIn(BaseModel):
     reason: str
     details: Optional[str] = None
