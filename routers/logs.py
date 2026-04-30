@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.database import get_db
 from dependencies.rbac import require_client
-from models.log import DailySurvey, MoodType, WeightLog
+from models.log import DailySurvey, Goal, MoodType, WeightLog
 from models.user import Client
 from models.workout import Workout, WorkoutLog, WorkoutPlan, ScheduledWorkout, SetResult
 from schemas.log import (
@@ -242,18 +242,28 @@ def _build_activity_day_response(db: Session, current_user, target_date: date) -
 
     daily_survey_out = None
     if survey:
-        mood_label = survey.mood_type.mood_type_name if survey.mood_type else None
         daily_survey_out = {
+            "survey_id": survey.survey_id,
+            "survey_date": survey.survey_date,
+            "mood_type_id": survey.mood_type_id,
+            "mood_label": survey.mood_type.mood_type_name if survey.mood_type else _DEFAULT_MOOD_LABEL,
             "step_count": survey.step_count,
             "calories_intake": survey.calories_intake,
             "calories_burned": survey.calories_burned,
             "water_intake": survey.water_intake,
-            "weight_lb": weight_lb,
-            "mood_label": mood_label,
             "notes": survey.notes,
+            "weight_lb": weight_lb,
         }
 
-    mood_options = [{"mood_label": m.mood_type_name} for m in db.query(MoodType).all()]
+    mood_options = [
+        {"mood_type_id": m.mood_type_id, "mood_label": m.mood_type_name}
+        for m in db.query(MoodType).all()
+    ]
+
+    goals = [
+        {"goal_id": g.goal_id, "goal_type_name": g.goal_type.goal_type_name}
+        for g in db.query(Goal).filter(Goal.user_id == current_user.user_id).all()
+    ]
 
     scheduled = db.query(ScheduledWorkout).filter(
         ScheduledWorkout.user_id == current_user.user_id,
@@ -275,6 +285,7 @@ def _build_activity_day_response(db: Session, current_user, target_date: date) -
                 "exercise_name": plan.exercise.name,
                 "category_name": plan.exercise.category.category_name if plan.exercise.category else None,
                 "allow_weight_input": True,
+                "skipped": False,
                 "sets": plan.sets,
                 "target_value": float(plan.target_value) if plan.target_value is not None else None,
                 "unit_name": plan.unit.unit_name if plan.unit else None,
@@ -285,7 +296,10 @@ def _build_activity_day_response(db: Session, current_user, target_date: date) -
         scheduled_workouts_out.append({
             "workout_id": workout.workout_id,
             "name": workout.name,
+            "scheduled_date": sw.scheduled_date,
+            "status": sw.status,
             "workout_time_mins": workout.workout_time_mins,
+            "image_url": workout.image_url,
             "exercises": exercises_out,
         })
 
@@ -296,15 +310,18 @@ def _build_activity_day_response(db: Session, current_user, target_date: date) -
 
     logged_workouts_out = [
         {
+            "workout_log_id": log.workout_log_id,
             "workout_id": log.workout_id,
             "workout_name": log.workout.name,
+            "status": "Completed",
+            "logged_at": log.logged_at,
             "set_results": [
                 {
                     "exercise_id": sr.exercise_id,
                     "exercise_name": sr.exercise.name if sr.exercise else None,
+                    "skipped": False,
                     "actual_weight": float(sr.actual_weight) if sr.actual_weight is not None else None,
                     "actual_value": float(sr.actual_value) if sr.actual_value is not None else None,
-                    "skipped": False,
                 }
                 for sr in log.set_results
             ],
@@ -314,12 +331,15 @@ def _build_activity_day_response(db: Session, current_user, target_date: date) -
 
     has_logged_data = survey is not None or len(workout_logs) > 0
     return {
-        "daily_survey": daily_survey_out,
+        "date": target_date,
+        "is_today": target_date == today,
+        "can_delete": has_logged_data and target_date == today,
+        "has_logged_data": has_logged_data,
         "mood_options": mood_options,
+        "goals": goals,
         "scheduled_workouts": scheduled_workouts_out,
         "logged_workouts": logged_workouts_out,
-        "has_logged_data": has_logged_data,
-        "can_delete": has_logged_data and target_date == today,
+        "daily_survey": daily_survey_out,
     }
 
 
