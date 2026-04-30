@@ -74,6 +74,29 @@ def can_review(
     return {"allowed": bool(contract)}
 
 
+@router.get("/{coach_id}/reviews/mine", response_model=ReviewOut | None)
+def get_my_review_for_coach(
+    coach_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    client = current_user.client
+    if not client:
+        return None
+
+    review = (
+        db.query(Review)
+        .filter(
+            Review.client_id == client.client_id,
+            Review.coach_id == coach_id,
+        )
+        .first()
+    )
+    if not review:
+        return None
+    return _build_review_out(review)
+
+
 @router.get("/{coach_id}/reviews", response_model=list[ReviewOut])
 def get_coach_reviews(
     coach_id: int,

@@ -1,5 +1,8 @@
 # Handles client endpoints like initial survey
 
+from datetime import date as _date
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -10,6 +13,32 @@ from models.log import Goal, GoalType
 
 from schemas.client import ClientRegisterIn, ClientOut
 from schemas.log import GoalOut
+
+
+def _age(dob) -> Optional[int]:
+    if dob is None:
+        return None
+    today = _date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+
+def _build_client_out(client: Client, db: Session) -> ClientOut:
+    user = db.query(User).filter(User.user_id == client.user_id).first()
+    goals = db.query(Goal).filter(Goal.user_id == client.user_id).all()
+    goal_type_names = [g.goal_type.goal_type_name for g in goals if g.goal_type]
+    return ClientOut(
+        client_id=client.client_id,
+        first_name=(user.first_name or "") if user else "",
+        last_name=(user.last_name or "") if user else "",
+        profile_picture=user.profile_picture if user else None,
+        age=_age(client.DOB),
+        height=client.height,
+        weight=client.weight,
+        goal_weight=client.goal_weight,
+        sex=client.sex,
+        weekly_streak=client.weekly_streak,
+        goal_types=goal_type_names,
+    )
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -54,7 +83,8 @@ def register_client(
         db.add(Goal(user_id=current_user.user_id, goal_type_id=gid))
 
     db.commit()
-    return {"message": "Profile saved."}
+    db.refresh(client)
+    return _build_client_out(client, db)
 
 # Retrieve current client's goals
 @router.get("/goals", response_model=list[GoalOut])

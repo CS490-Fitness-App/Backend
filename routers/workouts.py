@@ -13,7 +13,7 @@ from models.user import Client
 from models.workout import Workout, WorkoutPlan, SavedWorkout, ScheduledWorkout, WorkoutLog, SetResult
 from schemas.workout import (
     WorkoutIn, WorkoutOut, WorkoutDetailOut, WorkoutExerciseOut,
-    ScheduledWorkoutIn, ScheduledWorkoutOut,
+    AssignWorkoutIn, ScheduledWorkoutIn, ScheduledWorkoutOut,
     WorkoutLogIn, CalendarWorkoutOut,
 )
 
@@ -39,6 +39,8 @@ def _get_or_404(workout_id: int, db: Session) -> Workout:
 
 
 def _can_view_workout(w: Workout, current_user) -> bool:
+    if current_user.role == 'coach':
+        return True
     return w.creator_id == current_user.user_id or w.assigned_to == current_user.user_id
 
 
@@ -126,13 +128,16 @@ def list_workouts(
             joinedload(Workout.experience_level),
             joinedload(Workout.goal_type),
         )
-        .filter(
+    )
+
+    # Coaches see all workouts in the library; clients/others see only their own.
+    if current_user.role != 'coach':
+        query = query.filter(
             or_(
                 Workout.creator_id == current_user.user_id,
-                Workout.assigned_to != current_user.user_id,
+                Workout.assigned_to == current_user.user_id,
             )
         )
-    )
 
     if name:
         query = query.filter(Workout.name.ilike(f"%{name}%"))
@@ -185,7 +190,9 @@ def list_scheduled_workouts(
 
     result = []
     for row in rows:
-        w = _get_or_404(row.workout_id, db)
+        w = db.query(Workout).options(joinedload(Workout.experience_level), joinedload(Workout.goal_type)).filter(Workout.workout_id == row.workout_id).first()
+        if not w:
+            continue  # skip orphaned scheduled rows whose workout was deleted
         out = _to_out(w)
         result.append(CalendarWorkoutOut(
             scheduled_date=row.scheduled_date,
@@ -265,6 +272,41 @@ def update_workout(workout_id: int, data: WorkoutIn, db: Session = Depends(get_d
     return WorkoutDetailOut(**_to_out(w).model_dump(), exercises=_get_exercises(workout_id, db))
 
 
+# Assign an existing workout to a client — coach only, requires active relationship
+@router.patch("/{workout_id}/assign", response_model=WorkoutOut)
+def assign_workout(
+    workout_id: int,
+    data: AssignWorkoutIn,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if current_user.role != 'coach':
+        raise HTTPException(status_code=403, detail="Only coaches can assign workouts to clients.")
+
+    w = _get_or_404(workout_id, db)
+
+    target_client = db.query(Client).filter(Client.user_id == data.client_user_id).first()
+    if not target_client:
+        raise HTTPException(status_code=404, detail="Client not found.")
+
+    coach = current_user.coach
+    if not coach:
+        raise HTTPException(status_code=403, detail="Coach profile not found.")
+
+    active_rel = db.query(ClientCoach).filter_by(
+        client_id=target_client.client_id,
+        coach_id=coach.coach_id,
+        status_name='Active',
+    ).first()
+    if not active_rel:
+        raise HTTPException(status_code=403, detail="No active coaching relationship with this client.")
+
+    w.assigned_to = data.client_user_id
+    db.commit()
+    w = _get_or_404(workout_id, db)
+    return _to_out(w)
+
+
 # Delete a workout — only the creator can do this
 @router.delete("/{workout_id}", status_code=204)
 def delete_workout(workout_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
@@ -322,8 +364,9 @@ def schedule_workout(workout_id: int, data: ScheduledWorkoutIn, db: Session = De
     else:
         _require_workout_access(w, current_user)
 
-    if db.query(ScheduledWorkout).filter_by(user_id=target_user_id, workout_id=workout_id, scheduled_date=data.scheduled_date).first():
-        raise HTTPException(status_code=409, detail="Workout already scheduled for this date")
+    existing = db.query(ScheduledWorkout).filter_by(user_id=target_user_id, workout_id=workout_id, scheduled_date=data.scheduled_date).first()
+    if existing:
+        return ScheduledWorkoutOut(workout_id=workout_id, scheduled_date=data.scheduled_date, status=existing.status)
 
     db.add(ScheduledWorkout(
         user_id=target_user_id,

@@ -69,6 +69,7 @@ class SetResultOut(BaseModel):
 
     set_results_id: int
     exercise_id:    Optional[int]
+    skipped:        bool = False
     actual_weight:  Optional[float]
     actual_value:   Optional[float]
 
@@ -90,6 +91,7 @@ class DailySurveyOut(BaseModel):
     calories_intake: Optional[int]
     calories_burned: Optional[int]
     water_intake:    Optional[int]
+    notes:           Optional[str] = None
 
 
 class DailyCheckInStatusOut(BaseModel):

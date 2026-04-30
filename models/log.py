@@ -58,6 +58,20 @@ class DailySurvey(Base):
     mood_type = relationship('MoodType')
 
 
+class UserDailyEngagement(Base):
+    __tablename__ = 'user_daily_engagement'
+    __table_args__ = (UniqueConstraint('user_id', 'activity_date', name='uq_user_daily_engagement'),)
+
+    engagement_id    = Column(Integer, primary_key=True, autoincrement=True)
+    user_id          = Column(Integer, ForeignKey('users.user_id', ondelete='CASCADE'), nullable=False)
+    activity_date    = Column(Date, nullable=False)
+    first_login_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
+    last_login_at    = Column(DateTime(timezone=True), nullable=False, default=_now)
+    survey_completed = Column(SmallInteger, nullable=False, default=0)
+    created_at       = Column(DateTime(timezone=True), nullable=False, default=_now)
+    last_updated     = Column(DateTime(timezone=True), nullable=False, default=_now)
+
+
 class WeightLog(Base):
     __tablename__ = 'weight_logs'
 

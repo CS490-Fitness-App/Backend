@@ -11,6 +11,7 @@ from core.auth0 import auth, bearer_scheme
 from core.config import settings
 from core.database import get_db
 from dependencies.rbac import get_current_user, require_client, require_coach, require_admin
+from models.log import UserDailyEngagement
 from models.user import Admin, Client, Coach, User
 from schemas.auth import AuthRequestIn, AuthUserOut, LogoutOut
 
@@ -126,17 +127,41 @@ def create_account(
         profile_picture=payload.profile_picture,
         role=payload.role,
         created_at=_now(),
+        last_active_at=_now(),
         last_updated=_now(),
     )
     db.add(user)
     db.flush()
     _ensure_role_record(db, user)
+    _track_daily_login(db, user.user_id, user.last_active_at)
     return _commit_or_resolve_user(
         db,
         auth0_sub=auth0_sub,
         email=email,
         is_new_user=True,
     )
+
+
+def _track_daily_login(db: Session, user_id: int, timestamp: datetime) -> None:
+    today = timestamp.date()
+    engagement = db.query(UserDailyEngagement).filter(
+        UserDailyEngagement.user_id == user_id,
+        UserDailyEngagement.activity_date == today,
+    ).first()
+    if engagement:
+        engagement.last_login_at = timestamp
+        engagement.last_updated = timestamp
+        return
+
+    db.add(UserDailyEngagement(
+        user_id=user_id,
+        activity_date=today,
+        first_login_at=timestamp,
+        last_login_at=timestamp,
+        survey_completed=0,
+        created_at=timestamp,
+        last_updated=timestamp,
+    ))
 
 
 @router.post("/login", response_model=AuthUserOut)
@@ -167,8 +192,11 @@ def login_or_sync_account(
                 existing_email_user.last_name = payload.last_name
             if payload.profile_picture and not existing_email_user.profile_picture:
                 existing_email_user.profile_picture = payload.profile_picture
-            existing_email_user.last_updated = _now()
+            now = _now()
+            existing_email_user.last_active_at = now
+            existing_email_user.last_updated = now
             _ensure_role_record(db, existing_email_user)
+            _track_daily_login(db, existing_email_user.user_id, now)
             return _commit_or_resolve_user(
                 db,
                 auth0_sub=auth0_sub,
@@ -184,11 +212,13 @@ def login_or_sync_account(
             profile_picture=payload.profile_picture,
             role=payload.role,
             created_at=_now(),
+            last_active_at=_now(),
             last_updated=_now(),
         )
         db.add(user)
         db.flush()
         _ensure_role_record(db, user)
+        _track_daily_login(db, user.user_id, user.last_active_at)
         return _commit_or_resolve_user(
             db,
             auth0_sub=auth0_sub,
@@ -207,8 +237,11 @@ def login_or_sync_account(
     if payload.profile_picture and not user.profile_picture:
         user.profile_picture = payload.profile_picture
 
-    user.last_updated = _now()
+    now = _now()
+    user.last_active_at = now
+    user.last_updated = now
     _ensure_role_record(db, user)
+    _track_daily_login(db, user.user_id, now)
     return _commit_or_resolve_user(
         db,
         auth0_sub=auth0_sub,
