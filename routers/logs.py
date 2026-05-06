@@ -47,7 +47,7 @@ _LEGACY_MOOD_ALIASES = {
 
 
 def _current_utc_date() -> date:
-    return datetime.now(timezone.utc).date()
+    return date.today()  # Use local date to match client expectations
 
 
 def _next_utc_midnight() -> datetime:
