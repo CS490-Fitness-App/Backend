@@ -495,3 +495,14 @@ def get_coach_clients(
             pending_requests.append(entry)
 
     return CoachClientsOut(active_clients=active_clients, pending_requests=pending_requests)
+
+
+@router.get("/{coach_id}", response_model=CoachOut)
+def get_coach_by_id(
+    coach_id: int,
+    db: Session = Depends(get_db),
+):
+    coach = db.query(Coach).filter(Coach.coach_id == coach_id).first()
+    if not coach:
+        raise HTTPException(status_code=404, detail="Coach not found.")
+    return _build_coach_out(coach, db)
