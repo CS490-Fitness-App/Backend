@@ -51,5 +51,20 @@ def require_client(current_user: User = Depends(get_current_user)) -> User:
         )
     return current_user
 
+def require_active_coach(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "coach":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. This endpoint requires role: coach.",
+        )
+    coach = current_user.coach
+    if coach and coach.status and coach.status.status_name == "Suspended":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account has been suspended.",
+        )
+    return current_user
+
+
 require_coach = _require_role("coach")
 require_admin = _require_role("admin")

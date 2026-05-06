@@ -10,7 +10,9 @@ from core.database import get_db
 from dependencies.rbac import require_admin
 from models.log import DailySurvey, MoodType, UserDailyEngagement
 from models.payment import CoachPaymentHistory
+from models.coach import ClientCoach
 from models.user import Client, Coach, CoachStatus, User
+from routers.notifications import notify
 from schemas.admin import (
     AdminCoachApplicationOut,
     AdminCoachDecisionOut,
@@ -528,6 +530,25 @@ def suspend_coach_account(
 
     coach.status_id = suspended_status.status_id
     coach.accepting_clients = False
+
+    active_contracts = (
+        db.query(ClientCoach)
+        .filter(
+            ClientCoach.coach_id == coach_id,
+            ClientCoach.status_name.in_(["Active", "Pending"]),
+        )
+        .all()
+    )
+    for contract in active_contracts:
+        contract.status_name = "Terminated"
+        client = db.query(Client).filter(Client.client_id == contract.client_id).first()
+        if client:
+            notify(
+                db,
+                user_id=client.user_id,
+                message="Your coach's account has been suspended. Your coaching contract has been terminated.",
+            )
+
     db.commit()
 
     return AdminCoachDecisionOut(

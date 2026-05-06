@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 
 from core.database import get_db
-from dependencies.rbac import require_client, require_coach
+from dependencies.rbac import require_client, require_coach, require_active_coach
 from main import app
 from models.coach import ClientCoach
 from models.payment import Card, CardType
@@ -89,6 +89,7 @@ def coach_auth_client(db, coach_setup):
         yield db
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[require_coach] = lambda: mock_user
+    app.dependency_overrides[require_active_coach] = lambda: mock_user
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
