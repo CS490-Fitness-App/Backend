@@ -1,10 +1,9 @@
 # Entry point for the Primal Fitness FastAPI application.
-# Registers all routers, applies CORS middleware, and serves the uploads directory as static files.
+# Registers all routers and applies CORS middleware.
 
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from core.config import settings
 from routers.admin import router as admin_router
@@ -46,10 +45,6 @@ app.include_router(reviews_router)
 app.include_router(reports_router)
 app.include_router(dashboard_router)
 app.include_router(users_router)
-
-# serve everything inside the local ./uploads folder at the /uploads URL path
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 @app.get("/")

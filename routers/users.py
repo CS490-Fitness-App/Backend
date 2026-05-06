@@ -1,13 +1,14 @@
 # Handles user profile endpoints: profile get/update, profile picture upload, and account deletion.
 
-from pathlib import Path
-from uuid import uuid4
+import cloudinary
+import cloudinary.uploader
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from core.database import get_db
+from core.config import settings
 from dependencies.rbac import get_current_user
 from models.log import Goal
 from models.user import Admin, Client, Coach, User
@@ -15,7 +16,8 @@ from schemas.user import AdminProfileOut, ClientProfileOut, CoachProfileOut, Use
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-UPLOADS_ROOT = Path(__file__).resolve().parents[1] / "uploads" / "profile_pictures"
+cloudinary.config(cloudinary_url=settings.cloudinary_url)
+
 MAX_PROFILE_PICTURE_SIZE = 5 * 1024 * 1024
 ALLOWED_PROFILE_PICTURE_TYPES = {
 	"image/jpeg": ".jpg",
@@ -23,6 +25,7 @@ ALLOWED_PROFILE_PICTURE_TYPES = {
 	"image/webp": ".webp",
 	"image/gif": ".gif",
 }
+_CLOUDINARY_FOLDER = "primalfitness/profile_pictures"
 
 
 def _build_profile_response(db: Session, current_user: User) -> UserProfileOut:
@@ -100,19 +103,17 @@ def _normalize_profile_picture_reference(value: str | None) -> str | None:
 	if not normalized:
 		return None
 
-	if normalized.startswith("uploads/profile_pictures/"):
-		return f"/{normalized}"
-
-	if normalized.startswith("/uploads/profile_pictures/"):
-		return normalized
-
 	lower = normalized.lower()
+
+	# Accept any absolute URL (Cloudinary, Auth0, etc.)
 	if lower.startswith("http://") or lower.startswith("https://"):
 		return normalized
 
-	# Reject raw payload values (data URLs, blob URLs, bytes literals, etc.).
-	if lower.startswith("data:") or lower.startswith("blob:") or normalized.startswith("b'") or normalized.startswith('b"'):
-		return None
+	# Keep legacy local paths from before Cloudinary migration
+	if normalized.startswith("uploads/profile_pictures/"):
+		return f"/{normalized}"
+	if normalized.startswith("/uploads/profile_pictures/"):
+		return normalized
 
 	return None
 
@@ -196,21 +197,23 @@ async def upload_my_profile_picture(
 			detail="Profile picture must be 5 MB or smaller.",
 		)
 
-	UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
-	file_extension = ALLOWED_PROFILE_PICTURE_TYPES[profile_picture.content_type]
-	file_name = f"user_{current_user.user_id}_{uuid4().hex}{file_extension}"
-	file_path = UPLOADS_ROOT / file_name
-	file_path.write_bytes(file_bytes)
+	public_id = f"{_CLOUDINARY_FOLDER}/user_{current_user.user_id}"
+	try:
+		result = cloudinary.uploader.upload(
+			file_bytes,
+			public_id=public_id,
+			overwrite=True,
+			resource_type="image",
+		)
+	except Exception as exc:
+		raise HTTPException(
+			status_code=status.HTTP_502_BAD_GATEWAY,
+			detail=f"Cloudinary upload failed: {exc}",
+		) from exc
 
-	previous_picture = current_user.profile_picture
-	current_user.profile_picture = f"/uploads/profile_pictures/{file_name}"
+	current_user.profile_picture = result["secure_url"]
 	db.commit()
 	db.refresh(current_user)
-
-	if previous_picture and previous_picture.startswith("/uploads/profile_pictures/"):
-		previous_file_path = Path(__file__).resolve().parents[1] / previous_picture.lstrip("/")
-		if previous_file_path.exists() and previous_file_path != file_path:
-			previous_file_path.unlink()
 
 	return _build_profile_response(db, current_user)
 
@@ -244,10 +247,10 @@ def delete_my_account(
 	db: Session = Depends(get_db),
 	current_user: User = Depends(get_current_user),
 ):
-	if current_user.profile_picture and current_user.profile_picture.startswith("/uploads/profile_pictures/"):
-		previous_file_path = Path(__file__).resolve().parents[1] / current_user.profile_picture.lstrip("/")
-		if previous_file_path.exists():
-			previous_file_path.unlink()
+	try:
+		cloudinary.uploader.destroy(f"{_CLOUDINARY_FOLDER}/user_{current_user.user_id}")
+	except Exception:
+		pass
 
 	db.delete(current_user)
 	db.commit()
