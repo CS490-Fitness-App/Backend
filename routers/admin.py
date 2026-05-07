@@ -12,8 +12,10 @@ from models.log import DailySurvey, MoodType, UserDailyEngagement
 from models.payment import CoachPaymentHistory
 from models.coach import ClientCoach
 from models.user import Client, Coach, CoachStatus, User
+from models.workout import Workout
 from routers.notifications import notify
 from schemas.admin import (
+    AdminClientOut,
     AdminCoachApplicationOut,
     AdminCoachDecisionOut,
     AdminEngagementSummaryOut,
@@ -167,6 +169,54 @@ def _matches_financial_query(payment: CoachPaymentHistory, query: str | None, db
     client_name, coach_name = _payment_people(payment, db)
     haystack = f"{client_name} {coach_name} {payment.payment_id}".lower()
     return query.lower() in haystack
+
+
+@router.get("/clients", response_model=list[AdminClientOut])
+def list_clients(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    clients = (
+        db.query(Client)
+        .options(joinedload(Client.user))
+        .order_by(Client.created_at.desc())
+        .all()
+    )
+    return [
+        AdminClientOut(
+            client_id=client.client_id,
+            user_id=client.user_id,
+            first_name=client.user.first_name,
+            last_name=client.user.last_name,
+            email=client.user.email,
+            is_active=client.user.is_active,
+            weekly_streak=client.weekly_streak,
+            joined_at=client.created_at,
+        )
+        for client in clients
+    ]
+
+
+@router.delete("/clients/{client_id}", status_code=204)
+def delete_client(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    client = db.query(Client).filter(Client.client_id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    user_id = client.user_id
+    # workouts.creator_id has no DB-level cascade — delete those rows first
+    db.query(Workout).filter(Workout.creator_id == user_id).delete(synchronize_session=False)
+    # workouts.assigned_to is nullable — clear any references
+    db.query(Workout).filter(Workout.assigned_to == user_id).update(
+        {Workout.assigned_to: None}, synchronize_session=False
+    )
+    # Use query-based delete to bypass ORM pre-nulling of child FKs;
+    # the DB's ON DELETE CASCADE handles all remaining child tables.
+    db.query(User).filter(User.user_id == user_id).delete(synchronize_session=False)
+    db.commit()
 
 
 @router.get("/coaches", response_model=list[AdminCoachApplicationOut])
