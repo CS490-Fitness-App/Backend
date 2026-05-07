@@ -82,6 +82,19 @@ class WeightLog(Base):
     last_updated  = Column(DateTime(timezone=True), nullable=False, default=_now)
 
 
+class ProgressPhoto(Base):
+    __tablename__ = 'progress_photos'
+
+    progress_photo_id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id           = Column(Integer, ForeignKey('users.user_id', ondelete='CASCADE'), nullable=False)
+    photo_type        = Column(String(20), nullable=False)  # before / after
+    image_url         = Column(Text, nullable=False)
+    note              = Column(Text)
+    taken_on          = Column(Date, nullable=False)
+    created_at        = Column(DateTime(timezone=True), nullable=False, default=_now)
+    last_updated      = Column(DateTime(timezone=True), nullable=False, default=_now)
+
+
 class AuditLog(Base):
     __tablename__ = 'Audit_Log'
 

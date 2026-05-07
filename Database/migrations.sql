@@ -336,4 +336,20 @@ CALL _mig012() $$
 DROP PROCEDURE IF EXISTS _mig012 $$
 DELIMITER ;
 
+-- -----------------------------------------------------------------------------
+-- Migration 013: Create progress_photos
+-- Supports before/after progress picture uploads on the progress page.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS progress_photos (
+    progress_photo_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id           INT NOT NULL,
+    photo_type        ENUM('before', 'after') NOT NULL,
+    image_url         TEXT NOT NULL,
+    note              TEXT NULL,
+    taken_on          DATE NOT NULL,
+    created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_progress_photos_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 SET SQL_SAFE_UPDATES = 1;
