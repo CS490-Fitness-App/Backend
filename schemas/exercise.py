@@ -26,6 +26,7 @@ class ExerciseMetaOut(BaseModel):
     categories: List[ExerciseLookupOption]
     experience_levels: List[ExerciseLookupOption]
     muscle_groups: List[ExerciseLookupOption]
+    equipment: List[str]
 
 
 class ExerciseOut(BaseModel):
