@@ -166,6 +166,35 @@ def update_my_profile(
 		coach.last_updated = now
 		has_changes = True
 
+	if payload.hourly_rate is not None:
+		if payload.hourly_rate < 0:
+			raise HTTPException(status_code=400, detail="Hourly rate cannot be negative.")
+
+		coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+		if not coach:
+			raise HTTPException(status_code=400, detail="Hourly rate can only be set for coach profiles.")
+
+		old_rate = float(coach.hourly_rate) if coach.hourly_rate else 0.0
+		new_rate = round(payload.hourly_rate, 2)
+		coach.hourly_rate = new_rate
+		coach.last_updated = now
+		has_changes = True
+
+		active_contracts = (
+			db.query(ClientCoach)
+			.filter(ClientCoach.coach_id == coach.coach_id, ClientCoach.status_name == "Active")
+			.all()
+		)
+		coach_name = f"{current_user.first_name or ''} {current_user.last_name or ''}".strip() or "Your coach"
+		for contract in active_contracts:
+			client_row = db.query(Client).filter(Client.client_id == contract.client_id).first()
+			if client_row:
+				notify(
+					db,
+					user_id=client_row.user_id,
+					message=f"{coach_name} has updated their hourly rate from ${old_rate:.2f} to ${new_rate:.2f}.",
+				)
+
 	if has_changes:
 		current_user.last_updated = now
 		db.commit()
