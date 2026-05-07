@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 from core.database import get_db
 from core.config import settings
 from dependencies.rbac import get_current_user
+from models.coach import ClientCoach
 from models.log import Goal
 from models.user import Admin, Client, Coach, User
+from routers.notifications import notify
 from schemas.user import AdminProfileOut, ClientProfileOut, CoachProfileOut, UserProfileOut, UserProfileUpdateIn
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -225,6 +227,27 @@ def deactivate_my_account(
 ):
 	current_user.is_active = False
 	current_user.last_updated = datetime.now(timezone.utc)
+
+	if current_user.client:
+		client_id = current_user.client.client_id
+		active_contracts = (
+			db.query(ClientCoach)
+			.filter(
+				ClientCoach.client_id == client_id,
+				ClientCoach.status_name.in_(["Active", "Pending"]),
+			)
+			.all()
+		)
+		for contract in active_contracts:
+			contract.status_name = "Terminated"
+			coach = db.query(Coach).filter(Coach.coach_id == contract.coach_id).first()
+			if coach:
+				notify(
+					db,
+					user_id=coach.user_id,
+					message=f"Your client {current_user.first_name or ''} {current_user.last_name or ''} has deactivated their account. The coaching contract has been terminated.".strip(),
+				)
+
 	db.commit()
 	db.refresh(current_user)
 	return _build_profile_response(db, current_user)
