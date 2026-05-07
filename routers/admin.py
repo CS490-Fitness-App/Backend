@@ -189,6 +189,7 @@ def list_clients(
             first_name=client.user.first_name,
             last_name=client.user.last_name,
             email=client.user.email,
+            profile_picture=client.user.profile_picture,
             is_active=client.user.is_active,
             weekly_streak=client.weekly_streak,
             joined_at=client.created_at,
