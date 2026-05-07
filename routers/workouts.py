@@ -303,10 +303,6 @@ async def upload_workout_image(
 # Create a workout and its exercises in one request (frontend submits everything on save)
 @router.post("", response_model=WorkoutDetailOut, status_code=201)
 def create_workout(data: WorkoutIn, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    ids = [ex.exercise_id for ex in data.exercises]
-    if len(ids) != len(set(ids)):
-        raise HTTPException(status_code=400, detail="Duplicate exercise IDs in workout plan")
-
     workout = Workout(
         creator_id=current_user.user_id,
         assigned_to=data.assigned_to,
@@ -330,10 +326,6 @@ def create_workout(data: WorkoutIn, db: Session = Depends(get_db), current_user=
 # Replace a workout's metadata and full exercise list
 @router.put("/{workout_id}", response_model=WorkoutDetailOut)
 def update_workout(workout_id: int, data: WorkoutIn, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    ids = [ex.exercise_id for ex in data.exercises]
-    if len(ids) != len(set(ids)):
-        raise HTTPException(status_code=400, detail="Duplicate exercise IDs in workout plan")
-
     w = _get_or_404(workout_id, db)
     if current_user.role != 'admin':
         _require_workout_access(w, current_user)
