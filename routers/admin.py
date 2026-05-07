@@ -11,12 +11,14 @@ from dependencies.rbac import require_admin
 from models.log import DailySurvey, MoodType, UserDailyEngagement
 from models.payment import CoachPaymentHistory
 from models.coach import ClientCoach
+from models.review import Review
 from models.user import Client, Coach, CoachStatus, User
 from models.workout import Workout
 from routers.notifications import notify
 from schemas.admin import (
     AdminClientOut,
     AdminCoachApplicationOut,
+    AdminReviewOut,
     AdminCoachDecisionOut,
     AdminEngagementSummaryOut,
     AdminFinancialSummaryOut,
@@ -217,6 +219,45 @@ def delete_client(
     # Use query-based delete to bypass ORM pre-nulling of child FKs;
     # the DB's ON DELETE CASCADE handles all remaining child tables.
     db.query(User).filter(User.user_id == user_id).delete(synchronize_session=False)
+    db.commit()
+
+
+@router.get("/reviews", response_model=list[AdminReviewOut])
+def list_reviews(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    reviews = db.query(Review).order_by(Review.created_at.desc()).all()
+    result = []
+    for r in reviews:
+        coach_name = None
+        if r.coach and r.coach.user:
+            coach_name = f"{r.coach.user.first_name or ''} {r.coach.user.last_name or ''}".strip() or r.coach.user.email
+        client_name = None
+        if r.client and r.client.user:
+            client_name = f"{r.client.user.first_name or ''} {r.client.user.last_name or ''}".strip() or r.client.user.email
+        result.append(AdminReviewOut(
+            review_id=r.review_id,
+            coach_id=r.coach_id,
+            coach_name=coach_name,
+            client_name=client_name,
+            rating=r.rating,
+            description=r.description,
+            created_at=r.created_at,
+        ))
+    return result
+
+
+@router.delete("/reviews/{review_id}", status_code=204)
+def delete_review(
+    review_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    review = db.query(Review).filter(Review.review_id == review_id).first()
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    db.delete(review)
     db.commit()
 
 
