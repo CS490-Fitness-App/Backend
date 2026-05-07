@@ -67,6 +67,7 @@ def _build_coach_out(coach: Coach, db: Session) -> CoachOut:
         specialties=specialty_names if specialty_names else None,
         certifications=cert_names if cert_names else None,
         availability=avail_strs if avail_strs else None,
+        status=coach.status.status_name if coach.status else None,
     )
 
 
