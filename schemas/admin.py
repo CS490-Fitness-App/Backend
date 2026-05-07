@@ -9,6 +9,7 @@ class AdminClientOut(BaseModel):
     first_name: str | None = None
     last_name: str | None = None
     email: str
+    profile_picture: str | None = None
     is_active: bool
     weekly_streak: int
     joined_at: datetime
