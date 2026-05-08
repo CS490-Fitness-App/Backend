@@ -352,4 +352,46 @@ CREATE TABLE IF NOT EXISTS progress_photos (
     CONSTRAINT fk_progress_photos_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- -----------------------------------------------------------------------------
+-- Migration 014: Add deactivation lifecycle fields to users
+-- Supports timed self-deactivation and admin-held deactivation states.
+-- -----------------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS _mig014 $$
+CREATE PROCEDURE _mig014()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'deactivated_at'
+    ) THEN
+        ALTER TABLE users
+            ADD COLUMN deactivated_at TIMESTAMP NULL AFTER is_active;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'scheduled_deletion_at'
+    ) THEN
+        ALTER TABLE users
+            ADD COLUMN scheduled_deletion_at TIMESTAMP NULL AFTER deactivated_at;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'deactivated_by_admin'
+    ) THEN
+        ALTER TABLE users
+            ADD COLUMN deactivated_by_admin BOOLEAN NOT NULL DEFAULT FALSE AFTER scheduled_deletion_at;
+    END IF;
+END $$
+CALL _mig014() $$
+DROP PROCEDURE IF EXISTS _mig014 $$
+DELIMITER ;
+
 SET SQL_SAFE_UPDATES = 1;

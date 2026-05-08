@@ -8,9 +8,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.auth0 import auth, bearer_scheme
+from core.account_lifecycle import purge_if_self_deactivation_expired
 from core.config import settings
 from core.database import get_db
-from dependencies.rbac import get_current_user, require_client, require_coach, require_admin
+from dependencies.rbac import (
+    build_inactive_account_detail,
+    get_current_user,
+    require_client,
+    require_coach,
+    require_admin,
+)
 from models.log import UserDailyEngagement
 from models.user import Admin, Client, Coach, User
 from schemas.auth import AuthRequestIn, AuthUserOut, LogoutOut
@@ -71,6 +78,14 @@ def _auth_user_out(user: User, is_new_user: bool) -> AuthUserOut:
         role=user.role,
         is_new_user=is_new_user,
     )
+
+
+def _raise_if_inactive(user: User) -> None:
+    if user.is_active is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=build_inactive_account_detail(user),
+        )
 
 
 def _commit_or_resolve_user(
@@ -211,6 +226,10 @@ def login_or_sync_account(
 
         existing_email_user = _find_user_by_email(db, email)
         if existing_email_user:
+            if purge_if_self_deactivation_expired(db, existing_email_user):
+                existing_email_user = None
+        if existing_email_user:
+            _raise_if_inactive(existing_email_user)
             existing_email_user.auth0_sub = auth0_sub
             existing_email_user.email = email
             if payload.first_name and not existing_email_user.first_name:
@@ -254,6 +273,8 @@ def login_or_sync_account(
         )
 
     # Optional one-time profile fill
+    purge_if_self_deactivation_expired(db, user)
+    _raise_if_inactive(user)
     normalized_email = _normalize_email(payload.email or claims.get("email"))
     if normalized_email and user.email != normalized_email:
         user.email = normalized_email
@@ -278,27 +299,16 @@ def login_or_sync_account(
 
 
 @router.get("/me", response_model=AuthUserOut)
-def get_current_account(
-	claims: dict = Depends(auth),
-	db: Session = Depends(get_db),
-):
+def get_current_account(current_user: User = Depends(get_current_user)):
 	# Frontend connection check
-	# 1) valid token 2) user exists in local DB 3) return user profile for app state.
-	auth0_sub = claims["sub"]
-	user = db.query(User).filter(User.auth0_sub == auth0_sub).first()
-	if not user:
-		raise HTTPException(
-			status_code=status.HTTP_404_NOT_FOUND,
-			detail="User not found in local database. Call /auth/signup or /auth/login first.",
-		)
-
+	# 1) valid token 2) active user exists in local DB 3) return user profile for app state.
 	return AuthUserOut(
-		user_id=user.user_id,
-		auth0_sub=user.auth0_sub,
-		email=user.email,
-		first_name=user.first_name,
-		last_name=user.last_name,
-		role=user.role,
+		user_id=current_user.user_id,
+		auth0_sub=current_user.auth0_sub,
+		email=current_user.email,
+		first_name=current_user.first_name,
+		last_name=current_user.last_name,
+		role=current_user.role,
 		is_new_user=False,
 	)
 

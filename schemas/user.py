@@ -58,6 +58,9 @@ class UserProfileOut(BaseModel):
     profile_picture: Optional[str]
     role: str
     is_active: bool
+    deactivated_at: Optional[datetime] = None
+    scheduled_deletion_at: Optional[datetime] = None
+    deactivated_by_admin: bool = False
     created_at: datetime
     last_updated: datetime
     client_profile: Optional[ClientProfileOut] = None
