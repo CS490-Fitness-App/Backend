@@ -53,6 +53,18 @@ def _build_review_out(review: Review) -> ReviewOut:
     )
 
 
+@router.get("/reviews/featured", response_model=list[ReviewOut])
+def get_featured_reviews(db: Session = Depends(get_db)):
+    reviews = (
+        db.query(Review)
+        .filter(Review.rating >= 4, Review.description.isnot(None))
+        .order_by(Review.rating.desc(), Review.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    return [_build_review_out(r) for r in reviews]
+
+
 @router.get("/{coach_id}/reviews/can-review")
 def can_review(
     coach_id: int,

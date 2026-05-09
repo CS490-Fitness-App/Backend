@@ -83,8 +83,10 @@ def _validate_exercise_payload(data: ExerciseIn, db: Session, exclude_exercise_i
 def list_exercises(name: str | None = Query(default=None),
                     category_id: int | None = Query(default=None),
                     experience_level_id: int | None = Query(default=None),
+                    equipment: str | None = Query(default=None),
+                    muscle_group_id: int | None = Query(default=None),
                     db: Session = Depends(get_db)):
-    
+
     query = _exercise_query(db)
 
     if name and name.strip():
@@ -96,6 +98,17 @@ def list_exercises(name: str | None = Query(default=None),
     if experience_level_id:
         query = query.filter(Exercise.experience_level_id == experience_level_id)
 
+    if equipment and equipment.strip():
+        query = query.filter(Exercise.equipment.ilike(f"%{equipment.strip()}%"))
+
+    if muscle_group_id:
+        from models.exercise import exercise_muscles
+        query = query.filter(Exercise.exercise_id.in_(
+            db.query(exercise_muscles.c.exercise_id).filter(
+                exercise_muscles.c.muscle_group_id == muscle_group_id
+            )
+        ))
+
     exercises = query.all()
     return [_to_out(e) for e in exercises]
 
@@ -105,6 +118,19 @@ def get_exercise_meta(db: Session = Depends(get_db)):
     categories = db.query(ExerciseCategory).order_by(ExerciseCategory.category_name.asc()).all()
     experience_levels = db.query(ExperienceLevel).order_by(ExperienceLevel.experience_level_name.asc()).all()
     muscle_groups = db.query(MuscleGroup).order_by(MuscleGroup.muscle_group_name.asc()).all()
+    equipment_rows = (
+        db.query(Exercise.equipment)
+        .filter(Exercise.equipment.isnot(None), Exercise.equipment != "")
+        .all()
+    )
+
+    import re
+    equipment_set: set[str] = set()
+    for row in equipment_rows:
+        for part in re.split(r",| or ", row.equipment):
+            cleaned = part.strip()
+            if cleaned:
+                equipment_set.add(cleaned)
 
     return ExerciseMetaOut(
         categories=[
@@ -119,6 +145,7 @@ def get_exercise_meta(db: Session = Depends(get_db)):
             ExerciseLookupOption(id=muscle_group.muscle_group_id, name=muscle_group.muscle_group_name)
             for muscle_group in muscle_groups
         ],
+        equipment=sorted(equipment_set),
     )
 
 

@@ -37,8 +37,9 @@ class Workout(Base):
 class WorkoutPlan(Base):
     __tablename__ = 'workout_plans'
 
-    workout_id       = Column(Integer, ForeignKey('workouts.workout_id',   ondelete='CASCADE'), primary_key=True)
-    exercise_id      = Column(Integer, ForeignKey('exercises.exercise_id', ondelete='CASCADE'), primary_key=True)
+    plan_id          = Column(Integer, primary_key=True, autoincrement=True)
+    workout_id       = Column(Integer, ForeignKey('workouts.workout_id',   ondelete='CASCADE'), nullable=False)
+    exercise_id      = Column(Integer, ForeignKey('exercises.exercise_id', ondelete='CASCADE'), nullable=False)
     sets             = Column(Integer)
     target_value     = Column(Numeric(8, 2))
     unit_id          = Column(Integer, ForeignKey('units.unit_id'), nullable=False)

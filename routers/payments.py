@@ -213,6 +213,10 @@ def _run_auto_charge_for_user(db: Session, current_user: User) -> AutoChargeRunO
             skipped += 1
             continue
 
+        if coach.status and coach.status.status_name == "Suspended":
+            skipped += 1
+            continue
+
         client_user = db.query(User).filter_by(user_id=client.user_id).first()
         coach_user = db.query(User).filter_by(user_id=coach.user_id).first()
 

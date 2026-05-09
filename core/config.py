@@ -14,6 +14,7 @@ class Settings:
 		# Auth0 (example: dev-abc123.us.auth0.com)
 		self.auth0_domain = os.getenv("AUTH0_DOMAIN", "")
 		self.auth0_api_audience = os.getenv("AUTH0_API_AUDIENCE", "")
+		self.cloudinary_url = os.getenv("CLOUDINARY_URL", "")
 		cors_allowed_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
 		self.cors_allowed_origins = [
 			origin.strip()

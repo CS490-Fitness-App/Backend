@@ -1,21 +1,25 @@
 # Handles user profile endpoints: profile get/update, profile picture upload, and account deletion.
 
-from pathlib import Path
-from uuid import uuid4
+import cloudinary
+import cloudinary.uploader
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from core.database import get_db
+from core.config import settings
 from dependencies.rbac import get_current_user
+from models.coach import ClientCoach
 from models.log import Goal
 from models.user import Admin, Client, Coach, User
+from routers.notifications import notify
 from schemas.user import AdminProfileOut, ClientProfileOut, CoachProfileOut, UserProfileOut, UserProfileUpdateIn
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-UPLOADS_ROOT = Path(__file__).resolve().parents[1] / "uploads" / "profile_pictures"
+cloudinary.config(cloudinary_url=settings.cloudinary_url)
+
 MAX_PROFILE_PICTURE_SIZE = 5 * 1024 * 1024
 ALLOWED_PROFILE_PICTURE_TYPES = {
 	"image/jpeg": ".jpg",
@@ -23,6 +27,7 @@ ALLOWED_PROFILE_PICTURE_TYPES = {
 	"image/webp": ".webp",
 	"image/gif": ".gif",
 }
+_CLOUDINARY_FOLDER = "primalfitness/profile_pictures"
 
 
 def _build_profile_response(db: Session, current_user: User) -> UserProfileOut:
@@ -100,19 +105,17 @@ def _normalize_profile_picture_reference(value: str | None) -> str | None:
 	if not normalized:
 		return None
 
-	if normalized.startswith("uploads/profile_pictures/"):
-		return f"/{normalized}"
-
-	if normalized.startswith("/uploads/profile_pictures/"):
-		return normalized
-
 	lower = normalized.lower()
+
+	# Accept any absolute URL (Cloudinary, Auth0, etc.)
 	if lower.startswith("http://") or lower.startswith("https://"):
 		return normalized
 
-	# Reject raw payload values (data URLs, blob URLs, bytes literals, etc.).
-	if lower.startswith("data:") or lower.startswith("blob:") or normalized.startswith("b'") or normalized.startswith('b"'):
-		return None
+	# Keep legacy local paths from before Cloudinary migration
+	if normalized.startswith("uploads/profile_pictures/"):
+		return f"/{normalized}"
+	if normalized.startswith("/uploads/profile_pictures/"):
+		return normalized
 
 	return None
 
@@ -163,6 +166,35 @@ def update_my_profile(
 		coach.last_updated = now
 		has_changes = True
 
+	if payload.hourly_rate is not None:
+		if payload.hourly_rate < 0:
+			raise HTTPException(status_code=400, detail="Hourly rate cannot be negative.")
+
+		coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+		if not coach:
+			raise HTTPException(status_code=400, detail="Hourly rate can only be set for coach profiles.")
+
+		old_rate = float(coach.hourly_rate) if coach.hourly_rate else 0.0
+		new_rate = round(payload.hourly_rate, 2)
+		coach.hourly_rate = new_rate
+		coach.last_updated = now
+		has_changes = True
+
+		active_contracts = (
+			db.query(ClientCoach)
+			.filter(ClientCoach.coach_id == coach.coach_id, ClientCoach.status_name == "Active")
+			.all()
+		)
+		coach_name = f"{current_user.first_name or ''} {current_user.last_name or ''}".strip() or "Your coach"
+		for contract in active_contracts:
+			client_row = db.query(Client).filter(Client.client_id == contract.client_id).first()
+			if client_row:
+				notify(
+					db,
+					user_id=client_row.user_id,
+					message=f"{coach_name} has updated their hourly rate from ${old_rate:.2f} to ${new_rate:.2f}.",
+				)
+
 	if has_changes:
 		current_user.last_updated = now
 		db.commit()
@@ -196,21 +228,23 @@ async def upload_my_profile_picture(
 			detail="Profile picture must be 5 MB or smaller.",
 		)
 
-	UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
-	file_extension = ALLOWED_PROFILE_PICTURE_TYPES[profile_picture.content_type]
-	file_name = f"user_{current_user.user_id}_{uuid4().hex}{file_extension}"
-	file_path = UPLOADS_ROOT / file_name
-	file_path.write_bytes(file_bytes)
+	public_id = f"{_CLOUDINARY_FOLDER}/user_{current_user.user_id}"
+	try:
+		result = cloudinary.uploader.upload(
+			file_bytes,
+			public_id=public_id,
+			overwrite=True,
+			resource_type="image",
+		)
+	except Exception as exc:
+		raise HTTPException(
+			status_code=status.HTTP_502_BAD_GATEWAY,
+			detail=f"Cloudinary upload failed: {exc}",
+		) from exc
 
-	previous_picture = current_user.profile_picture
-	current_user.profile_picture = f"/uploads/profile_pictures/{file_name}"
+	current_user.profile_picture = result["secure_url"]
 	db.commit()
 	db.refresh(current_user)
-
-	if previous_picture and previous_picture.startswith("/uploads/profile_pictures/"):
-		previous_file_path = Path(__file__).resolve().parents[1] / previous_picture.lstrip("/")
-		if previous_file_path.exists() and previous_file_path != file_path:
-			previous_file_path.unlink()
 
 	return _build_profile_response(db, current_user)
 
@@ -222,6 +256,27 @@ def deactivate_my_account(
 ):
 	current_user.is_active = False
 	current_user.last_updated = datetime.now(timezone.utc)
+
+	if current_user.client:
+		client_id = current_user.client.client_id
+		active_contracts = (
+			db.query(ClientCoach)
+			.filter(
+				ClientCoach.client_id == client_id,
+				ClientCoach.status_name.in_(["Active", "Pending"]),
+			)
+			.all()
+		)
+		for contract in active_contracts:
+			contract.status_name = "Terminated"
+			coach = db.query(Coach).filter(Coach.coach_id == contract.coach_id).first()
+			if coach:
+				notify(
+					db,
+					user_id=coach.user_id,
+					message=f"Your client {current_user.first_name or ''} {current_user.last_name or ''} has deactivated their account. The coaching contract has been terminated.".strip(),
+				)
+
 	db.commit()
 	db.refresh(current_user)
 	return _build_profile_response(db, current_user)
@@ -244,10 +299,10 @@ def delete_my_account(
 	db: Session = Depends(get_db),
 	current_user: User = Depends(get_current_user),
 ):
-	if current_user.profile_picture and current_user.profile_picture.startswith("/uploads/profile_pictures/"):
-		previous_file_path = Path(__file__).resolve().parents[1] / current_user.profile_picture.lstrip("/")
-		if previous_file_path.exists():
-			previous_file_path.unlink()
+	try:
+		cloudinary.uploader.destroy(f"{_CLOUDINARY_FOLDER}/user_{current_user.user_id}")
+	except Exception:
+		pass
 
 	db.delete(current_user)
 	db.commit()

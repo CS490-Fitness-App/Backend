@@ -71,6 +71,7 @@ class CoachOut(BaseModel):
     specialties:         Optional[list[str]]
     certifications:      Optional[list[str]]
     availability:        Optional[list[str]]
+    status:              Optional[str]
 
 
 class ClientEntry(BaseModel):

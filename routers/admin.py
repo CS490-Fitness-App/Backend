@@ -10,9 +10,15 @@ from core.database import get_db
 from dependencies.rbac import require_admin
 from models.log import DailySurvey, MoodType, UserDailyEngagement
 from models.payment import CoachPaymentHistory
+from models.coach import ClientCoach
+from models.review import Review
 from models.user import Client, Coach, CoachStatus, User
+from models.workout import Workout
+from routers.notifications import notify
 from schemas.admin import (
+    AdminClientOut,
     AdminCoachApplicationOut,
+    AdminReviewOut,
     AdminCoachDecisionOut,
     AdminEngagementSummaryOut,
     AdminFinancialSummaryOut,
@@ -165,6 +171,94 @@ def _matches_financial_query(payment: CoachPaymentHistory, query: str | None, db
     client_name, coach_name = _payment_people(payment, db)
     haystack = f"{client_name} {coach_name} {payment.payment_id}".lower()
     return query.lower() in haystack
+
+
+@router.get("/clients", response_model=list[AdminClientOut])
+def list_clients(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    clients = (
+        db.query(Client)
+        .options(joinedload(Client.user))
+        .order_by(Client.created_at.desc())
+        .all()
+    )
+    return [
+        AdminClientOut(
+            client_id=client.client_id,
+            user_id=client.user_id,
+            first_name=client.user.first_name,
+            last_name=client.user.last_name,
+            email=client.user.email,
+            profile_picture=client.user.profile_picture,
+            is_active=client.user.is_active,
+            weekly_streak=client.weekly_streak,
+            joined_at=client.created_at,
+        )
+        for client in clients
+    ]
+
+
+@router.delete("/clients/{client_id}", status_code=204)
+def delete_client(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    client = db.query(Client).filter(Client.client_id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    user_id = client.user_id
+    # workouts.creator_id has no DB-level cascade — delete those rows first
+    db.query(Workout).filter(Workout.creator_id == user_id).delete(synchronize_session=False)
+    # workouts.assigned_to is nullable — clear any references
+    db.query(Workout).filter(Workout.assigned_to == user_id).update(
+        {Workout.assigned_to: None}, synchronize_session=False
+    )
+    # Use query-based delete to bypass ORM pre-nulling of child FKs;
+    # the DB's ON DELETE CASCADE handles all remaining child tables.
+    db.query(User).filter(User.user_id == user_id).delete(synchronize_session=False)
+    db.commit()
+
+
+@router.get("/reviews", response_model=list[AdminReviewOut])
+def list_reviews(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    reviews = db.query(Review).order_by(Review.created_at.desc()).all()
+    result = []
+    for r in reviews:
+        coach_name = None
+        if r.coach and r.coach.user:
+            coach_name = f"{r.coach.user.first_name or ''} {r.coach.user.last_name or ''}".strip() or r.coach.user.email
+        client_name = None
+        if r.client and r.client.user:
+            client_name = f"{r.client.user.first_name or ''} {r.client.user.last_name or ''}".strip() or r.client.user.email
+        result.append(AdminReviewOut(
+            review_id=r.review_id,
+            coach_id=r.coach_id,
+            coach_name=coach_name,
+            client_name=client_name,
+            rating=r.rating,
+            description=r.description,
+            created_at=r.created_at,
+        ))
+    return result
+
+
+@router.delete("/reviews/{review_id}", status_code=204)
+def delete_review(
+    review_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    review = db.query(Review).filter(Review.review_id == review_id).first()
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    db.delete(review)
+    db.commit()
 
 
 @router.get("/coaches", response_model=list[AdminCoachApplicationOut])
@@ -528,6 +622,25 @@ def suspend_coach_account(
 
     coach.status_id = suspended_status.status_id
     coach.accepting_clients = False
+
+    active_contracts = (
+        db.query(ClientCoach)
+        .filter(
+            ClientCoach.coach_id == coach_id,
+            ClientCoach.status_name.in_(["Active", "Pending"]),
+        )
+        .all()
+    )
+    for contract in active_contracts:
+        contract.status_name = "Terminated"
+        client = db.query(Client).filter(Client.client_id == contract.client_id).first()
+        if client:
+            notify(
+                db,
+                user_id=client.user_id,
+                message="Your coach's account has been suspended. Your coaching contract has been terminated.",
+            )
+
     db.commit()
 
     return AdminCoachDecisionOut(

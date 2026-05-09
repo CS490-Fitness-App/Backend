@@ -70,3 +70,4 @@ class UserProfileUpdateIn(BaseModel):
     last_name: Optional[str] = None
     bio: Optional[str] = None
     goal_weight_lb: Optional[float] = None
+    hourly_rate: Optional[float] = None

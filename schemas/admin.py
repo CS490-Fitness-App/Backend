@@ -3,6 +3,28 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+class AdminClientOut(BaseModel):
+    client_id: int
+    user_id: int
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str
+    profile_picture: str | None = None
+    is_active: bool
+    weekly_streak: int
+    joined_at: datetime
+
+
+class AdminReviewOut(BaseModel):
+    review_id: int
+    coach_id: int
+    coach_name: str | None = None
+    client_name: str | None = None
+    rating: int
+    description: str | None = None
+    created_at: datetime
+
+
 class AdminCoachApplicationOut(BaseModel):
     coach_id: int
     user_id: int

@@ -108,6 +108,9 @@ def create_or_get_chat(
             detail="A chat requires one participant with a coach profile and one with a client profile.",
         )
 
+    if coach_profile.status and coach_profile.status.status_name == "Suspended":
+        raise HTTPException(status_code=403, detail="This coach's account has been suspended.")
+
     rel_exists = db.query(ClientCoach.client_id).filter(
         ClientCoach.coach_id == coach_profile.coach_id,
         ClientCoach.client_id == client_profile.client_id,
@@ -219,8 +222,15 @@ def send_message(
     receiver_id = uid_b if current_user.user_id == uid_a else uid_a
 
     # verify receiver exists
-    if not db.query(User.user_id).filter(User.user_id == receiver_id).first():
+    receiver = db.query(User).filter(User.user_id == receiver_id).first()
+    if not receiver:
         raise HTTPException(status_code=404, detail="Recipient user not found.")
+
+    # block messaging if either side is a suspended coach
+    if current_user.role == "coach" and current_user.coach and current_user.coach.status and current_user.coach.status.status_name == "Suspended":
+        raise HTTPException(status_code=403, detail="Your account has been suspended.")
+    if receiver.role == "coach" and receiver.coach and receiver.coach.status and receiver.coach.status.status_name == "Suspended":
+        raise HTTPException(status_code=403, detail="This coach's account has been suspended.")
 
     msg = Chat(
         sender_id=current_user.user_id,

@@ -7,6 +7,7 @@
 -- Usage:  mysql -u root -p primal_fitness < migrations.sql
 -- =============================================================================
 USE primal_fitness;
+SET SQL_SAFE_UPDATES = 0;
 DELIMITER $$
 
 -- -----------------------------------------------------------------------------
@@ -301,3 +302,38 @@ END $$
 CALL _mig011() $$
 DROP PROCEDURE IF EXISTS _mig011 $$
 DELIMITER ;
+
+-- -----------------------------------------------------------------------------
+-- Migration 012: Add plan_id primary key to workout_plans
+-- Allows the same exercise to appear more than once in a workout plan
+-- (e.g. two different rep-range sets of squats). The previous composite PK
+-- (workout_id, exercise_id) enforced uniqueness and is replaced by an
+-- auto-increment surrogate key; workout_id + exercise_id become plain FKs.
+-- -----------------------------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS _mig012 $$
+CREATE PROCEDURE _mig012()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'workout_plans'
+          AND COLUMN_NAME  = 'plan_id'
+    ) THEN
+        -- Add explicit indexes on the FK columns first so InnoDB can still
+        -- satisfy the FK constraints after the composite PK is dropped.
+        ALTER TABLE workout_plans
+            ADD INDEX idx_wp_workout_id  (workout_id),
+            ADD INDEX idx_wp_exercise_id (exercise_id);
+
+        ALTER TABLE workout_plans
+            DROP PRIMARY KEY,
+            ADD COLUMN plan_id INT NOT NULL AUTO_INCREMENT FIRST,
+            ADD PRIMARY KEY (plan_id);
+    END IF;
+END $$
+CALL _mig012() $$
+DROP PROCEDURE IF EXISTS _mig012 $$
+DELIMITER ;
+
+SET SQL_SAFE_UPDATES = 1;

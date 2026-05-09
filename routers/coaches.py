@@ -7,7 +7,7 @@ from typing import Optional
 from models.review import Review
 
 from core.database import get_db
-from dependencies.rbac import require_client, require_coach, get_current_user
+from dependencies.rbac import require_client, require_coach, require_active_coach, get_current_user
 from models.user import User, Coach, CoachStatus, Client
 from models.coach import ClientCoach, CoachCertification, CoachAvailability, CoachSessionFormat, coach_specialities
 from models.user import SessionFormat
@@ -67,6 +67,7 @@ def _build_coach_out(coach: Coach, db: Session) -> CoachOut:
         specialties=specialty_names if specialty_names else None,
         certifications=cert_names if cert_names else None,
         availability=avail_strs if avail_strs else None,
+        status=coach.status.status_name if coach.status else None,
     )
 
 
@@ -230,7 +231,16 @@ def send_request(
     client_id = current_user.client.client_id
 
     #check whether request is valid and return error if necessary
-    query = db.query(Coach).filter(Coach.coach_id == coach_id, Coach.accepting_clients == True).first()
+    query = (
+        db.query(Coach)
+        .join(CoachStatus)
+        .filter(
+            Coach.coach_id == coach_id,
+            Coach.accepting_clients == True,
+            CoachStatus.status_name == "Active",
+        )
+        .first()
+    )
     if not query:
         raise HTTPException(status_code=404, detail="Coach not found or not accepting clients.")
 
@@ -267,7 +277,7 @@ def send_request(
 def accept_request(
     client_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(require_coach)
+    current_user=Depends(require_active_coach)
 ):
     #get coach_id from current_user
     coach_id = current_user.coach.coach_id
@@ -486,3 +496,14 @@ def get_coach_clients(
             pending_requests.append(entry)
 
     return CoachClientsOut(active_clients=active_clients, pending_requests=pending_requests)
+
+
+@router.get("/{coach_id}", response_model=CoachOut)
+def get_coach_by_id(
+    coach_id: int,
+    db: Session = Depends(get_db),
+):
+    coach = db.query(Coach).filter(Coach.coach_id == coach_id).first()
+    if not coach:
+        raise HTTPException(status_code=404, detail="Coach not found.")
+    return _build_coach_out(coach, db)

@@ -1,11 +1,14 @@
 # Handles workout plan endpoints (UC 3.2–3.4): creating/editing workout plans, browsing the library, managing saved workouts, and scheduling.
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+import cloudinary
+import cloudinary.uploader
+from fastapi import APIRouter, Depends, File, Query, HTTPException, UploadFile
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_
 from typing import List, Optional
 from datetime import date
 
+from core.config import settings
 from core.database import get_db
 from dependencies.rbac import get_current_user
 from models.coach import ClientCoach
@@ -18,6 +21,11 @@ from schemas.workout import (
 )
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
+
+cloudinary.config(cloudinary_url=settings.cloudinary_url)
+_WORKOUT_IMAGE_FOLDER = "primalfitness/workout_images"
+_ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+_MAX_IMAGE_SIZE = 5 * 1024 * 1024
 
 
 # --- Helpers ---
@@ -39,7 +47,7 @@ def _get_or_404(workout_id: int, db: Session) -> Workout:
 
 
 def _can_view_workout(w: Workout, current_user) -> bool:
-    if current_user.role == 'coach':
+    if current_user.role in ('coach', 'admin'):
         return True
     return w.creator_id == current_user.user_id or w.assigned_to == current_user.user_id
 
@@ -134,8 +142,8 @@ def list_workouts(
         )
     )
 
-    # Coaches see all workouts in the library; clients/others see only their own.
-    if current_user.role != 'coach':
+    # Coaches and admins see all workouts; clients see only their own.
+    if current_user.role not in ('coach', 'admin'):
         query = query.filter(
             or_(
                 Workout.creator_id == current_user.user_id,
@@ -256,13 +264,45 @@ def get_workout(workout_id: int, db: Session = Depends(get_db), current_user=Dep
     return _to_detail_out(w, db)
 
 
+@router.post("/{workout_id}/image", response_model=dict)
+async def upload_workout_image(
+    workout_id: int,
+    image: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    w = _get_or_404(workout_id, db)
+    if current_user.role != 'admin':
+        _require_workout_access(w, current_user)
+        if w.creator_id != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to edit this workout")
+
+    if image.content_type not in _ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid image type. Use JPEG, PNG, WebP, or GIF.")
+
+    file_bytes = await image.read()
+    if len(file_bytes) > _MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=400, detail="Image must be under 5 MB.")
+
+    public_id = f"{_WORKOUT_IMAGE_FOLDER}/workout_{workout_id}"
+    try:
+        result = cloudinary.uploader.upload(
+            file_bytes,
+            public_id=public_id,
+            overwrite=True,
+            resource_type="image",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Cloudinary upload failed: {exc}") from exc
+
+    w.image_url = result["secure_url"]
+    db.commit()
+    return {"image_url": w.image_url}
+
+
 # Create a workout and its exercises in one request (frontend submits everything on save)
 @router.post("", response_model=WorkoutDetailOut, status_code=201)
 def create_workout(data: WorkoutIn, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    ids = [ex.exercise_id for ex in data.exercises]
-    if len(ids) != len(set(ids)):
-        raise HTTPException(status_code=400, detail="Duplicate exercise IDs in workout plan")
-
     workout = Workout(
         creator_id=current_user.user_id,
         assigned_to=data.assigned_to,
@@ -286,14 +326,11 @@ def create_workout(data: WorkoutIn, db: Session = Depends(get_db), current_user=
 # Replace a workout's metadata and full exercise list
 @router.put("/{workout_id}", response_model=WorkoutDetailOut)
 def update_workout(workout_id: int, data: WorkoutIn, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    ids = [ex.exercise_id for ex in data.exercises]
-    if len(ids) != len(set(ids)):
-        raise HTTPException(status_code=400, detail="Duplicate exercise IDs in workout plan")
-
     w = _get_or_404(workout_id, db)
-    _require_workout_access(w, current_user)
-    if w.creator_id != current_user.user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to edit this workout")
+    if current_user.role != 'admin':
+        _require_workout_access(w, current_user)
+        if w.creator_id != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to edit this workout")
 
     w.name = data.name
     w.assigned_to = data.assigned_to
@@ -351,9 +388,10 @@ def assign_workout(
 @router.delete("/{workout_id}", status_code=204)
 def delete_workout(workout_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     w = _get_or_404(workout_id, db)
-    _require_workout_access(w, current_user)
-    if w.creator_id != current_user.user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this workout")
+    if current_user.role != 'admin':
+        _require_workout_access(w, current_user)
+        if w.creator_id != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this workout")
     db.delete(w)
     db.commit()
 
