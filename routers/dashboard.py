@@ -2,23 +2,32 @@ from datetime import date, timedelta, datetime, time, timezone
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import cloudinary
+import cloudinary.uploader
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session, joinedload
 
 from sqlalchemy import func
 
+from core.config import settings
 from core.database import get_db
 from dependencies.rbac import require_client, get_current_user, require_coach
 from models.coach import ClientCoach
-from models.log import DailySurvey, Goal, GoalType, MoodType, WeightLog
+from models.log import DailySurvey, Goal, GoalType, MoodType, ProgressPhoto, WeightLog
 from models.review import Review
 from models.user import User, Client, Coach
 from models.workout import Workout, WorkoutLog, ScheduledWorkout, WorkoutPlan
+from schemas.log import ProgressPhotoOut
 
 router = APIRouter(
     prefix="/dashboard",
     tags=["dashboard"]
 )
+
+cloudinary.config(cloudinary_url=settings.cloudinary_url)
+_PROGRESS_PHOTO_FOLDER = "primalfitness/progress_photos"
+_ALLOWED_PROGRESS_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+_MAX_PROGRESS_PHOTO_SIZE = 5 * 1024 * 1024
 
 
 def _grams_to_pounds(value):
@@ -78,6 +87,41 @@ def _score_to_closest_mood(score: float | None) -> str:
         return "Okay"
     closest_score = min(_SCORE_TO_MOOD.keys(), key=lambda value: abs(value - score))
     return _SCORE_TO_MOOD[closest_score]
+
+
+def _resolve_progress_target_user_id(
+    db: Session,
+    current_user,
+    client_user_id: Optional[int],
+) -> int:
+    if client_user_id is not None and client_user_id != current_user.user_id:
+        coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
+        if not coach:
+            raise HTTPException(status_code=403, detail="Only coaches can view other users' progress.")
+        target_client = db.query(Client).filter(Client.user_id == client_user_id).first()
+        if not target_client:
+            raise HTTPException(status_code=404, detail="Client not found.")
+        rel = db.query(ClientCoach).filter(
+            ClientCoach.coach_id == coach.coach_id,
+            ClientCoach.client_id == target_client.client_id,
+            ClientCoach.status_name == "Active",
+        ).first()
+        if not rel:
+            raise HTTPException(status_code=403, detail="You do not have an active relationship with this client.")
+        return client_user_id
+    return current_user.user_id
+
+
+def _serialize_progress_photo(photo: ProgressPhoto) -> ProgressPhotoOut:
+    return ProgressPhotoOut(
+        progress_photo_id=photo.progress_photo_id,
+        user_id=photo.user_id,
+        photo_type=photo.photo_type,
+        image_url=photo.image_url,
+        note=photo.note,
+        taken_on=photo.taken_on,
+        created_at=photo.created_at,
+    )
 
 
 @router.get("/client")
@@ -259,24 +303,7 @@ def get_client_progress(
     selected_month: str | None = None,
     client_user_id: Optional[int] = Query(None, description="Coach-only: view a specific client's progress by user_id"),
 ):
-    # If a coach is requesting a client's progress, verify the relationship.
-    if client_user_id is not None and client_user_id != current_user.user_id:
-        coach = db.query(Coach).filter(Coach.user_id == current_user.user_id).first()
-        if not coach:
-            raise HTTPException(status_code=403, detail="Only coaches can view other users' progress.")
-        target_client = db.query(Client).filter(Client.user_id == client_user_id).first()
-        if not target_client:
-            raise HTTPException(status_code=404, detail="Client not found.")
-        rel = db.query(ClientCoach).filter(
-            ClientCoach.coach_id == coach.coach_id,
-            ClientCoach.client_id == target_client.client_id,
-            ClientCoach.status_name == "Active",
-        ).first()
-        if not rel:
-            raise HTTPException(status_code=403, detail="You do not have an active relationship with this client.")
-        target_user_id = client_user_id
-    else:
-        target_user_id = current_user.user_id
+    target_user_id = _resolve_progress_target_user_id(db, current_user, client_user_id)
 
     client = db.query(Client).filter(Client.user_id == target_user_id).first()
     target_user = db.query(User).filter(User.user_id == target_user_id).first()
@@ -543,6 +570,13 @@ def get_client_progress(
         for log in weight_logs[:20]
     ]
 
+    progress_photos = (
+        db.query(ProgressPhoto)
+        .filter(ProgressPhoto.user_id == target_user_id)
+        .order_by(ProgressPhoto.taken_on.desc(), ProgressPhoto.created_at.desc())
+        .all()
+    )
+
     # Count distinct days this calendar week (Mon–Sun) where the client has a workout log
     week_monday = today - timedelta(days=today.weekday())
     week_sunday = week_monday + timedelta(days=6)
@@ -575,6 +609,7 @@ def get_client_progress(
         },
         "goals": goals,
         "weight_history": weight_history,
+        "progress_photos": [_serialize_progress_photo(photo).model_dump() for photo in progress_photos],
         "calendar_events": calendar_events,
         "weight_chart": {
             "current_weight_lb": current_weight_lb,
@@ -597,3 +632,110 @@ def get_client_progress(
             "mood_label": average_mood_label,
         },
     }
+
+
+@router.get("/client/progress-photos", response_model=list[ProgressPhotoOut])
+def list_progress_photos(
+    client_user_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    target_user_id = _resolve_progress_target_user_id(db, current_user, client_user_id)
+    photos = (
+        db.query(ProgressPhoto)
+        .filter(ProgressPhoto.user_id == target_user_id)
+        .order_by(ProgressPhoto.taken_on.desc(), ProgressPhoto.created_at.desc())
+        .all()
+    )
+    return [_serialize_progress_photo(photo) for photo in photos]
+
+
+@router.post("/client/progress-photos", response_model=ProgressPhotoOut, status_code=status.HTTP_201_CREATED)
+async def upload_progress_photo(
+    photo_type: str = Form(...),
+    taken_on: date | None = Form(None),
+    note: str | None = Form(None),
+    image: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+    if not client:
+        raise HTTPException(status_code=403, detail="Only client profiles can upload progress photos.")
+
+    normalized_type = (photo_type or "").strip().lower()
+    if normalized_type not in {"before", "after"}:
+        raise HTTPException(status_code=400, detail="Photo type must be either 'before' or 'after'.")
+
+    if image.content_type not in _ALLOWED_PROGRESS_PHOTO_TYPES:
+        raise HTTPException(status_code=400, detail="Image must be JPG, PNG, WEBP, or GIF.")
+
+    file_bytes = await image.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded image is empty.")
+    if len(file_bytes) > _MAX_PROGRESS_PHOTO_SIZE:
+        raise HTTPException(status_code=400, detail="Image must be 5 MB or smaller.")
+
+    effective_taken_on = taken_on or date.today()
+    public_id = f"{_PROGRESS_PHOTO_FOLDER}/user_{current_user.user_id}_{normalized_type}_{int(datetime.now(timezone.utc).timestamp())}"
+
+    try:
+        result = cloudinary.uploader.upload(
+            file_bytes,
+            public_id=public_id,
+            overwrite=False,
+            resource_type="image",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Cloudinary upload failed: {exc}") from exc
+
+    now = datetime.now(timezone.utc)
+    photo = ProgressPhoto(
+        user_id=current_user.user_id,
+        photo_type=normalized_type,
+        image_url=result["secure_url"],
+        note=(note or "").strip() or None,
+        taken_on=effective_taken_on,
+        created_at=now,
+        last_updated=now,
+    )
+    db.add(photo)
+    db.commit()
+    db.refresh(photo)
+    return _serialize_progress_photo(photo)
+
+
+@router.delete("/client/progress-photos/{progress_photo_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_progress_photo(
+    progress_photo_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    client = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+    if not client:
+        raise HTTPException(status_code=403, detail="Only client profiles can delete progress photos.")
+
+    photo = (
+        db.query(ProgressPhoto)
+        .filter(
+            ProgressPhoto.progress_photo_id == progress_photo_id,
+            ProgressPhoto.user_id == current_user.user_id,
+        )
+        .first()
+    )
+    if not photo:
+        raise HTTPException(status_code=404, detail="Progress photo not found.")
+
+    try:
+        upload_split = photo.image_url.split("/upload/")
+        if len(upload_split) > 1:
+            asset_path = upload_split[1]
+            if "/" in asset_path:
+                asset_path = asset_path.split("/", 1)[1]
+            public_id = asset_path.rsplit(".", 1)[0]
+            cloudinary.uploader.destroy(public_id)
+    except Exception:
+        pass
+
+    db.delete(photo)
+    db.commit()
