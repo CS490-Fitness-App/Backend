@@ -426,6 +426,17 @@ def delete_client(
         raise HTTPException(status_code=409, detail="Deactivate the client before deleting the account.")
 
     delete_user_account(db, user.user_id)
+    user_id = client.user_id
+    # workouts.creator_id has no DB-level cascade — delete those rows first
+    db.query(Workout).filter(Workout.creator_id == user_id).delete(synchronize_session=False)
+    # workouts.assigned_to is nullable — clear any references
+    db.query(Workout).filter(Workout.assigned_to == user_id).update(
+        {Workout.assigned_to: None}, synchronize_session=False
+    )
+    # Use query-based delete to bypass ORM pre-nulling of child FKs;
+    # the DB's ON DELETE CASCADE handles all remaining child tables.
+    db.query(User).filter(User.user_id == user_id).delete(synchronize_session=False)
+    db.commit()
 
 
 @router.get("/reviews", response_model=list[AdminReviewOut])
