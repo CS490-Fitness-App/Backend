@@ -304,11 +304,11 @@ DROP PROCEDURE IF EXISTS _mig011 $$
 DELIMITER ;
 
 -- -----------------------------------------------------------------------------
--- Migration 012: Add plan_id primary key to workout_plans
--- Allows the same exercise to appear more than once in a workout plan
--- (e.g. two different rep-range sets of squats). The previous composite PK
--- (workout_id, exercise_id) enforced uniqueness and is replaced by an
--- auto-increment surrogate key; workout_id + exercise_id become plain FKs.
+-- Migration 012: Add deactivated_at, scheduled_deletion_at, deactivated_by_admin to users
+-- Tracks when accounts were deactivated, when they expire for self-deactivations,
+-- and whether an admin triggered the deactivation (vs. self-service).
+-- Required by the admin client deactivate/reactivate endpoints and the self-
+-- deactivation retention/purge flow in dependencies/rbac.py.
 -- -----------------------------------------------------------------------------
 DELIMITER $$
 DROP PROCEDURE IF EXISTS _mig012 $$
@@ -317,23 +317,33 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME   = 'workout_plans'
-          AND COLUMN_NAME  = 'plan_id'
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'deactivated_at'
     ) THEN
-        -- Add explicit indexes on the FK columns first so InnoDB can still
-        -- satisfy the FK constraints after the composite PK is dropped.
-        ALTER TABLE workout_plans
-            ADD INDEX idx_wp_workout_id  (workout_id),
-            ADD INDEX idx_wp_exercise_id (exercise_id);
+        ALTER TABLE users
+            ADD COLUMN deactivated_at TIMESTAMP NULL AFTER is_active;
+    END IF;
 
-        ALTER TABLE workout_plans
-            DROP PRIMARY KEY,
-            ADD COLUMN plan_id INT NOT NULL AUTO_INCREMENT FIRST,
-            ADD PRIMARY KEY (plan_id);
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'scheduled_deletion_at'
+    ) THEN
+        ALTER TABLE users
+            ADD COLUMN scheduled_deletion_at TIMESTAMP NULL AFTER deactivated_at;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'users'
+          AND COLUMN_NAME  = 'deactivated_by_admin'
+    ) THEN
+        ALTER TABLE users
+            ADD COLUMN deactivated_by_admin BOOLEAN NOT NULL DEFAULT FALSE AFTER scheduled_deletion_at;
     END IF;
 END $$
 CALL _mig012() $$
 DROP PROCEDURE IF EXISTS _mig012 $$
 DELIMITER ;
-
-SET SQL_SAFE_UPDATES = 1;

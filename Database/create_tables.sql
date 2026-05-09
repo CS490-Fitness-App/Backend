@@ -10,7 +10,7 @@ DROP TABLES IF EXISTS Coach_Status, Session_Formats, Users, Clients, Coaches, Co
                         Coach_Session_Formats, Coach_Availability, Admins, Client_Coach, Goal_Types,
                         Goals, Coach_Specialities, Exercise_Categories, Muscle_Groups, Experience_Levels,
                         Units, Workouts, Exercises, Exercise_Muscles, Workout_Plans, Workout_Logs,
-                        Set_Results, Weight_Logs, Saved_Workouts, Mood_Types, Daily_Surveys, Card_Types,
+                        Set_Results, Weight_Logs, Progress_Photos, Saved_Workouts, Mood_Types, Daily_Surveys, Card_Types,
                         Cards, Reviews, Coach_Payment_History, Notifications, Chat, Notebook,
                         Scheduled_Workout, Reports, Audit_Log;
 
@@ -46,6 +46,9 @@ CREATE TABLE Users (
     profile_picture TEXT,
     `role`          VARCHAR(50)  NOT NULL DEFAULT 'client',
     is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
+    deactivated_at  TIMESTAMP    NULL,
+    scheduled_deletion_at TIMESTAMP NULL,
+    deactivated_by_admin BOOLEAN NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
     last_active_at  TIMESTAMP    NULL,
     last_updated    TIMESTAMP    NOT NULL DEFAULT NOW()
@@ -305,6 +308,19 @@ CREATE TABLE Weight_Logs (
     created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
     last_updated  TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_weight_logs_user FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
+
+-- Progress_Photos: Stores before/after progress images uploaded by clients.
+CREATE TABLE Progress_Photos (
+    progress_photo_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id           INT NOT NULL,
+    photo_type        ENUM('before', 'after') NOT NULL,
+    image_url         TEXT NOT NULL,
+    note              TEXT,
+    taken_on          DATE NOT NULL,
+    created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_updated      TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_progress_photos_user FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
 -- Saved_Workouts: Allows users to bookmark and save workouts for quick access.

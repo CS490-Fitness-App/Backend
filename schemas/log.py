@@ -179,6 +179,7 @@ class ActivityDayOut(BaseModel):
     scheduled_workouts: list[ActivityScheduledWorkoutOut] = []
     logged_workouts: list[ActivityWorkoutLogOut] = []
     daily_survey: Optional[ActivityDaySurveyOut] = None
+    progress_photos: list["ProgressPhotoOut"] = []
 
 
 class ActivityDaySurveyIn(BaseModel):
@@ -206,3 +207,13 @@ class ActivityWorkoutLogIn(BaseModel):
 class ActivityDayUpdateIn(BaseModel):
     daily_survey: Optional[ActivityDaySurveyIn] = None
     workout_logs: list[ActivityWorkoutLogIn] = []
+
+
+class ProgressPhotoOut(BaseModel):
+    progress_photo_id: int
+    user_id: int
+    photo_type: str
+    image_url: str
+    note: Optional[str] = None
+    taken_on: date
+    created_at: datetime

@@ -1,15 +1,20 @@
 # Handles activity and wellness logging endpoints (UC 3.5, 3.7, 6.5): workout session logs, set results, daily surveys, and weight entries.
 
 from datetime import date, datetime, time, timedelta, timezone
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import cloudinary
+import cloudinary.uploader
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 from types import SimpleNamespace
 
+from core.config import settings
 from core.database import get_db
 from dependencies.rbac import require_client
-from models.log import DailySurvey, Goal, Goal, MoodType, UserDailyEngagement, WeightLog
+from models.coach import ClientCoach
+from models.log import DailySurvey, Goal, Goal, MoodType, ProgressPhoto, UserDailyEngagement, WeightLog
 from models.user import Client
 from models.workout import ScheduledWorkout, Workout, WorkoutLog, WorkoutPlan, SetResult
 from schemas.log import (
@@ -27,6 +32,7 @@ from schemas.log import (
     DailySurveyOut,
     LogIn,
     LogsOut,
+    ProgressPhotoOut,
     SetResultOut,
     StepsLogIn,
     WorkoutLogIn,
@@ -35,11 +41,16 @@ from schemas.log import (
 
 router = APIRouter(prefix="/logs", tags=["logs"], redirect_slashes=False)
 
+cloudinary.config(cloudinary_url=settings.cloudinary_url)
+
 _DEFAULT_MOOD = 3  # mood_type_id for "Okay" — used when auto-creating a daily survey row
 
 
 _LB_TO_GRAMS = 453.59237
 _DEFAULT_MOOD_LABEL = "Okay"
+_PROGRESS_PHOTO_FOLDER = "primalfitness/progress_photos"
+_ALLOWED_PROGRESS_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+_MAX_PROGRESS_PHOTO_SIZE = 5 * 1024 * 1024
 _LEGACY_MOOD_ALIASES = {
     "amazing": "Great",
     "bad": "Low",
@@ -114,6 +125,61 @@ def _current_client(current_user, db: Session) -> Client:
     if not client:
         raise HTTPException(status_code=404, detail="Client profile not found.")
     return client
+
+
+def _resolve_activity_target(current_user, db: Session, client_user_id: int | None):
+    if client_user_id is not None and client_user_id != current_user.user_id:
+        if current_user.role != "coach":
+            raise HTTPException(status_code=403, detail="Only coaches can view another user's activity log.")
+
+        coach_profile = current_user.coach
+        if not coach_profile:
+            raise HTTPException(status_code=403, detail="Coach profile not found.")
+
+        target_client = db.query(Client).filter(Client.user_id == client_user_id).first()
+        if not target_client:
+            raise HTTPException(status_code=404, detail="Client profile not found.")
+
+        relationship = (
+            db.query(ClientCoach)
+            .filter(
+                ClientCoach.client_id == target_client.client_id,
+                ClientCoach.coach_id == coach_profile.coach_id,
+                ClientCoach.status_name == "Active",
+            )
+            .first()
+        )
+        if not relationship:
+            raise HTTPException(status_code=403, detail="No active coaching relationship with this client.")
+
+        return target_client.user_id, target_client.client_id
+
+    client = _current_client(current_user, db)
+    return current_user.user_id, client.client_id
+
+
+def _serialize_progress_photo(photo: ProgressPhoto) -> ProgressPhotoOut:
+    return ProgressPhotoOut(
+        progress_photo_id=photo.progress_photo_id,
+        user_id=photo.user_id,
+        photo_type=photo.photo_type,
+        image_url=photo.image_url,
+        note=photo.note,
+        taken_on=photo.taken_on,
+        created_at=photo.created_at,
+    )
+
+
+def _progress_photos_for_date(db: Session, user_id: int, target_date: date) -> list[ProgressPhoto]:
+    return (
+        db.query(ProgressPhoto)
+        .filter(
+            ProgressPhoto.user_id == user_id,
+            ProgressPhoto.taken_on == target_date,
+        )
+        .order_by(ProgressPhoto.created_at.desc(), ProgressPhoto.progress_photo_id.desc())
+        .all()
+    )
 
 
 def _date_bounds(target_date: date) -> tuple[datetime, datetime]:
@@ -452,35 +518,38 @@ def _upsert_workout_logs_for_day(db: Session, client_id: int, user_id: int, targ
 @router.get("/activity-day", response_model=ActivityDayOut)
 def get_activity_day(
     date: date = Query(...),
+    client_user_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(require_client),
 ):
-    client = _current_client(current_user, db)
+    target_user_id, target_client_id = _resolve_activity_target(current_user, db, client_user_id)
 
     survey = (
         db.query(DailySurvey)
         .options(joinedload(DailySurvey.mood_type))
         .filter(
-            DailySurvey.user_id == current_user.user_id,
+            DailySurvey.user_id == target_user_id,
             DailySurvey.survey_date == date,
         )
         .first()
     )
-    scheduled_workouts = _scheduled_workouts_for_date(db, current_user.user_id, date)
-    logged_workouts = _logged_workouts_for_date(db, client.client_id, date)
-    day_weight_log = _weight_log_for_date(db, current_user.user_id, date)
-    has_logged_data = bool(survey or logged_workouts or day_weight_log)
+    scheduled_workouts = _scheduled_workouts_for_date(db, target_user_id, date)
+    logged_workouts = _logged_workouts_for_date(db, target_client_id, date)
+    day_weight_log = _weight_log_for_date(db, target_user_id, date)
+    progress_photos = _progress_photos_for_date(db, target_user_id, date)
+    has_logged_data = bool(survey or logged_workouts or day_weight_log or progress_photos)
 
     return ActivityDayOut(
         date=date,
-        is_today=date == _current_utc_date(),
-        can_delete=date == _current_utc_date() and has_logged_data,
+        is_today=current_user.role != "coach" and date == _current_utc_date(),
+        can_delete=current_user.role != "coach" and date == _current_utc_date() and has_logged_data,
         has_logged_data=has_logged_data,
         mood_options=_mood_options(db),
-        goals=_goal_tags_for_user(db, current_user.user_id),
+        goals=_goal_tags_for_user(db, target_user_id),
         scheduled_workouts=[_serialize_scheduled_workout(db, row) for row in scheduled_workouts],
         logged_workouts=[_serialize_workout_log(log) for log in logged_workouts],
-        daily_survey=_serialize_daily_survey(db, survey, date, current_user.user_id),
+        daily_survey=_serialize_daily_survey(db, survey, date, target_user_id),
+        progress_photos=[_serialize_progress_photo(photo) for photo in progress_photos],
     )
 
 
@@ -530,6 +599,9 @@ def delete_activity_day(
     weight_log = _weight_log_for_date(db, current_user.user_id, date)
     if weight_log:
         db.delete(weight_log)
+
+    for photo in _progress_photos_for_date(db, current_user.user_id, date):
+        db.delete(photo)
 
     db.commit()
 
@@ -680,19 +752,107 @@ def create_daily_checkin(
     }
 
 
-def _build_activity_day_response(db: Session, current_user, target_date: date) -> dict:
-    client = current_user.client
+@router.post("/activity-day/photos", response_model=ProgressPhotoOut, status_code=status.HTTP_201_CREATED)
+async def upload_activity_day_photo(
+    date: date = Query(...),
+    photo_type: str = Form(...),
+    note: str | None = Form(default=None),
+    image: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    _current_client(current_user, db)
+
+    if date < _current_utc_date():
+        raise HTTPException(status_code=403, detail="Historical logs are locked and cannot be edited.")
+
+    normalized_type = (photo_type or "").strip().lower()
+    if normalized_type not in {"before", "after"}:
+        raise HTTPException(status_code=400, detail="photo_type must be either 'before' or 'after'.")
+
+    if image.content_type not in _ALLOWED_PROGRESS_PHOTO_TYPES:
+        raise HTTPException(status_code=400, detail="Please upload a JPG, PNG, WEBP, or GIF image.")
+
+    file_bytes = await image.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded image was empty.")
+    if len(file_bytes) > _MAX_PROGRESS_PHOTO_SIZE:
+        raise HTTPException(status_code=400, detail="Images must be 5 MB or smaller.")
+
+    uploaded = cloudinary.uploader.upload(
+        file_bytes,
+        folder=_PROGRESS_PHOTO_FOLDER,
+        resource_type="image",
+        public_id=f"user_{current_user.user_id}_{date.isoformat()}_{normalized_type}_{int(datetime.now(timezone.utc).timestamp())}",
+        overwrite=False,
+    )
+
+    photo = ProgressPhoto(
+        user_id=current_user.user_id,
+        photo_type=normalized_type,
+        image_url=uploaded["secure_url"],
+        note=(note or "").strip() or None,
+        taken_on=date,
+    )
+    db.add(photo)
+    db.commit()
+    db.refresh(photo)
+    return _serialize_progress_photo(photo)
+
+
+@router.delete("/activity-day/photos/{progress_photo_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_activity_day_photo(
+    progress_photo_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_client),
+):
+    _current_client(current_user, db)
+
+    photo = (
+        db.query(ProgressPhoto)
+        .filter(
+            ProgressPhoto.progress_photo_id == progress_photo_id,
+            ProgressPhoto.user_id == current_user.user_id,
+        )
+        .first()
+    )
+    if not photo:
+        raise HTTPException(status_code=404, detail="Progress photo not found.")
+
+    if photo.taken_on < _current_utc_date():
+        raise HTTPException(status_code=403, detail="Historical logs are locked and cannot be edited.")
+
+    cloud_name = cloudinary.config().cloud_name
+    if cloud_name and photo.image_url:
+        parsed = urlparse(photo.image_url)
+        marker = f"/{cloud_name}/image/upload/"
+        if marker in parsed.path:
+            public_id = parsed.path.split(marker, 1)[1]
+            if "." in public_id:
+                public_id = public_id.rsplit(".", 1)[0]
+            try:
+                cloudinary.uploader.destroy(public_id)
+            except Exception:
+                pass
+
+    db.delete(photo)
+    db.commit()
+    return None
+
+
+def _build_activity_day_response(db: Session, current_user, target_date: date, client_user_id: int | None = None) -> dict:
+    target_user_id, target_client_id = _resolve_activity_target(current_user, db, client_user_id)
     today = _current_utc_date()
 
     survey = db.query(DailySurvey).filter(
-        DailySurvey.user_id == current_user.user_id,
+        DailySurvey.user_id == target_user_id,
         DailySurvey.survey_date == target_date,
     ).first()
 
     weight_log = (
         db.query(WeightLog)
         .filter(
-            WeightLog.user_id == current_user.user_id,
+            WeightLog.user_id == target_user_id,
             func.date(WeightLog.created_at) == target_date,
         )
         .order_by(WeightLog.created_at.desc())
@@ -722,11 +882,11 @@ def _build_activity_day_response(db: Session, current_user, target_date: date) -
 
     goals = [
         {"goal_id": g.goal_id, "goal_type_name": g.goal_type.goal_type_name}
-        for g in db.query(Goal).filter(Goal.user_id == current_user.user_id).all()
+        for g in db.query(Goal).filter(Goal.user_id == target_user_id).all()
     ]
 
     scheduled = db.query(ScheduledWorkout).filter(
-        ScheduledWorkout.user_id == current_user.user_id,
+        ScheduledWorkout.user_id == target_user_id,
         ScheduledWorkout.scheduled_date == target_date,
     ).all()
 
@@ -764,9 +924,10 @@ def _build_activity_day_response(db: Session, current_user, target_date: date) -
         })
 
     workout_logs = db.query(WorkoutLog).filter(
-        WorkoutLog.client_id == client.client_id,
+        WorkoutLog.client_id == target_client_id,
         func.date(WorkoutLog.logged_at) == target_date,
     ).all()
+    progress_photos = _progress_photos_for_date(db, target_user_id, target_date)
 
     logged_workouts_out = [
         {
@@ -789,27 +950,29 @@ def _build_activity_day_response(db: Session, current_user, target_date: date) -
         for log in workout_logs
     ]
 
-    has_logged_data = survey is not None or len(workout_logs) > 0
+    has_logged_data = survey is not None or len(workout_logs) > 0 or len(progress_photos) > 0 or weight_log is not None
     return {
         "date": target_date,
-        "is_today": target_date == today,
-        "can_delete": has_logged_data and target_date == today,
+        "is_today": current_user.role != "coach" and target_date == today,
+        "can_delete": current_user.role != "coach" and has_logged_data and target_date == today,
         "has_logged_data": has_logged_data,
         "mood_options": mood_options,
         "goals": goals,
         "scheduled_workouts": scheduled_workouts_out,
         "logged_workouts": logged_workouts_out,
         "daily_survey": daily_survey_out,
+        "progress_photos": [_serialize_progress_photo(photo).model_dump() for photo in progress_photos],
     }
 
 
 @router.get("/activity-day", response_model=ActivityDayOut)
 def get_activity_day(
     date: date | None = Query(default=None),
+    client_user_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(require_client),
 ):
-    return _build_activity_day_response(db, current_user, date or _current_utc_date())
+    return _build_activity_day_response(db, current_user, date or _current_utc_date(), client_user_id=client_user_id)
 
 
 @router.put("/activity-day", response_model=ActivityDayOut)
@@ -916,6 +1079,9 @@ def delete_activity_day(
         func.date(WeightLog.created_at) == target_date,
     ).all():
         db.delete(wl)
+
+    for photo in _progress_photos_for_date(db, current_user.user_id, target_date):
+        db.delete(photo)
 
     for wl in db.query(WorkoutLog).filter(
         WorkoutLog.client_id == client.client_id,
