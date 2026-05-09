@@ -3,4 +3,5 @@
 __pycache__/
 *.pyc
 primal_fitness.sql
-Database/*
+Database/*.sql
+Database/migrations.sql
