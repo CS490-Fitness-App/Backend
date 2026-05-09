@@ -7,18 +7,24 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
 from core.database import get_db
+from core.account_lifecycle import delete_user_account
 from dependencies.rbac import require_admin
-from models.log import DailySurvey, MoodType, UserDailyEngagement
+from models.log import DailySurvey, Goal, GoalType, MoodType, UserDailyEngagement
 from models.payment import CoachPaymentHistory
-from models.coach import ClientCoach
-from models.review import Review
+from models.coach import ClientCoach, CoachAvailability, CoachCertification
+from models.review import Review, Report
 from models.user import Client, Coach, CoachStatus, User
 from models.workout import Workout
 from routers.notifications import notify
 from schemas.admin import (
     AdminClientOut,
+    AdminClientProfileOut,
+    AdminClientStatusOut,
     AdminCoachApplicationOut,
+    AdminCoachProfileOut,
     AdminReviewOut,
+    AdminReportOut,
+    AdminReportUpdateIn,
     AdminCoachDecisionOut,
     AdminEngagementSummaryOut,
     AdminFinancialSummaryOut,
@@ -70,6 +76,28 @@ def _to_admin_coach_out(coach: Coach) -> AdminCoachApplicationOut:
     )
 
 
+def _to_admin_report_out(report: Report) -> AdminReportOut:
+    coach_user = report.coach.user if report.coach else None
+    reporter = report.reporter
+    coach_name = _full_name(coach_user)
+    reporter_name = _full_name(reporter)
+
+    return AdminReportOut(
+        report_id=report.report_id,
+        reporter_id=report.reporter_id,
+        reporter_name=reporter_name,
+        reporter_email=reporter.email if reporter else None,
+        coach_id=report.coach_id,
+        coach_name=coach_name,
+        coach_email=coach_user.email if coach_user else None,
+        coach_status=report.coach.status.status_name if report.coach and report.coach.status else None,
+        reason=report.reason,
+        status=report.status or "Pending",
+        created_at=report.created_at,
+        last_updated=report.last_updated,
+    )
+
+
 def _get_status_or_404(db: Session, status_name: str) -> CoachStatus:
     status = db.query(CoachStatus).filter(CoachStatus.status_name == status_name).first()
     if not status:
@@ -92,6 +120,22 @@ def _get_coach_or_404(coach_id: int, db: Session) -> Coach:
     return coach
 
 
+def _get_report_or_404(report_id: int, db: Session) -> Report:
+    report = (
+        db.query(Report)
+        .options(
+            joinedload(Report.reporter),
+            joinedload(Report.coach).joinedload(Coach.user),
+            joinedload(Report.coach).joinedload(Coach.status),
+        )
+        .filter(Report.report_id == report_id)
+        .first()
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
+
+
 def _period_start(period: str) -> datetime | None:
     now = datetime.now(timezone.utc)
     if period == "this_month":
@@ -111,6 +155,19 @@ def _full_name(user: User | None) -> str:
     if not user:
         return "Unknown"
     return f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
+
+
+def _calculate_age(dob: date | None) -> int | None:
+    if not dob:
+        return None
+    today = date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+
+def _grams_to_lb(value: int | None) -> float | None:
+    if value is None:
+        return None
+    return round(value / 453.592, 1)
 
 
 def _payment_status(payment: CoachPaymentHistory) -> str:
@@ -193,11 +250,164 @@ def list_clients(
             email=client.user.email,
             profile_picture=client.user.profile_picture,
             is_active=client.user.is_active,
+            deactivated_at=client.user.deactivated_at,
+            scheduled_deletion_at=client.user.scheduled_deletion_at,
+            deactivated_by_admin=client.user.deactivated_by_admin,
             weekly_streak=client.weekly_streak,
             joined_at=client.created_at,
         )
         for client in clients
     ]
+
+
+@router.get("/clients/{client_id}/profile", response_model=AdminClientProfileOut)
+def get_client_profile(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    client = (
+        db.query(Client)
+        .options(joinedload(Client.user))
+        .filter(Client.client_id == client_id)
+        .first()
+    )
+    if not client or not client.user:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    goals = (
+        db.query(GoalType.goal_type_name)
+        .join(Goal, Goal.goal_type_id == GoalType.goal_type_id)
+        .filter(Goal.user_id == client.user_id)
+        .all()
+    )
+
+    active_contract = (
+        db.query(ClientCoach)
+        .filter(
+            ClientCoach.client_id == client.client_id,
+            ClientCoach.status_name == "Active",
+        )
+        .first()
+    )
+
+    latest_survey = (
+        db.query(DailySurvey.survey_date)
+        .filter(DailySurvey.user_id == client.user_id)
+        .order_by(DailySurvey.survey_date.desc())
+        .first()
+    )
+
+    active_coach = None
+    if active_contract:
+        active_coach = (
+            db.query(Coach)
+            .options(joinedload(Coach.user))
+            .filter(Coach.coach_id == active_contract.coach_id)
+            .first()
+        )
+    active_coach_user = active_coach.user if active_coach and active_coach.user else None
+
+    return AdminClientProfileOut(
+        client_id=client.client_id,
+        user_id=client.user_id,
+        first_name=client.user.first_name,
+        last_name=client.user.last_name,
+        email=client.user.email,
+        profile_picture=client.user.profile_picture,
+        is_active=client.user.is_active,
+        deactivated_at=client.user.deactivated_at,
+        scheduled_deletion_at=client.user.scheduled_deletion_at,
+        deactivated_by_admin=client.user.deactivated_by_admin,
+        joined_at=client.created_at,
+        weekly_streak=client.weekly_streak,
+        age=_calculate_age(client.DOB),
+        height_cm=client.height,
+        weight_lb=_grams_to_lb(client.weight),
+        goal_weight_lb=_grams_to_lb(client.goal_weight),
+        sex=client.sex,
+        goals=[row.goal_type_name for row in goals],
+        active_coach_name=_full_name(active_coach_user) if active_coach_user else None,
+        active_coach_email=active_coach_user.email if active_coach_user else None,
+        last_survey_date=latest_survey[0] if latest_survey else None,
+    )
+
+
+@router.post("/clients/{client_id}/deactivate", response_model=AdminClientStatusOut)
+def deactivate_client(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    client = db.query(Client).filter(Client.client_id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    user = client.user
+    if not user:
+        raise HTTPException(status_code=404, detail="Client user not found")
+    if user.is_active is False:
+        raise HTTPException(status_code=409, detail="Client account is already inactive")
+
+    user.is_active = False
+    user.deactivated_at = datetime.now(timezone.utc)
+    user.scheduled_deletion_at = None
+    user.deactivated_by_admin = True
+    user.last_updated = datetime.now(timezone.utc)
+
+    active_contracts = (
+        db.query(ClientCoach)
+        .filter(
+            ClientCoach.client_id == client.client_id,
+            ClientCoach.status_name.in_(["Active", "Pending"]),
+        )
+        .all()
+    )
+    for contract in active_contracts:
+        contract.status_name = "Terminated"
+        coach = db.query(Coach).filter(Coach.coach_id == contract.coach_id).first()
+        if coach:
+            notify(
+                db,
+                user_id=coach.user_id,
+                message=f"Your client {_full_name(user)} has been deactivated by an admin. The coaching contract has been terminated.",
+            )
+
+    db.commit()
+
+    return AdminClientStatusOut(
+        message="Client account deactivated",
+        client_id=client.client_id,
+        is_active=False,
+    )
+
+
+@router.post("/clients/{client_id}/reactivate", response_model=AdminClientStatusOut)
+def reactivate_client(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    client = db.query(Client).filter(Client.client_id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    user = client.user
+    if not user:
+        raise HTTPException(status_code=404, detail="Client user not found")
+    if user.is_active is True:
+        raise HTTPException(status_code=409, detail="Client account is already active")
+
+    user.is_active = True
+    user.deactivated_at = None
+    user.scheduled_deletion_at = None
+    user.deactivated_by_admin = False
+    user.last_updated = datetime.now(timezone.utc)
+    db.commit()
+
+    return AdminClientStatusOut(
+        message="Client account reactivated",
+        client_id=client.client_id,
+        is_active=True,
+    )
 
 
 @router.delete("/clients/{client_id}", status_code=204)
@@ -209,6 +419,13 @@ def delete_client(
     client = db.query(Client).filter(Client.client_id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    user = client.user
+    if not user:
+        raise HTTPException(status_code=404, detail="Client user not found")
+    if user.is_active:
+        raise HTTPException(status_code=409, detail="Deactivate the client before deleting the account.")
+
+    delete_user_account(db, user.user_id)
     user_id = client.user_id
     # workouts.creator_id has no DB-level cascade — delete those rows first
     db.query(Workout).filter(Workout.creator_id == user_id).delete(synchronize_session=False)
@@ -248,6 +465,45 @@ def list_reviews(
     return result
 
 
+@router.get("/reports", response_model=list[AdminReportOut])
+def list_reports(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    reports = (
+        db.query(Report)
+        .options(
+            joinedload(Report.reporter),
+            joinedload(Report.coach).joinedload(Coach.user),
+            joinedload(Report.coach).joinedload(Coach.status),
+        )
+        .order_by(Report.created_at.desc())
+        .all()
+    )
+    return [_to_admin_report_out(report) for report in reports]
+
+
+@router.post("/reports/{report_id}/status", response_model=AdminReportOut)
+def update_report_status(
+    report_id: int,
+    body: AdminReportUpdateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    allowed_statuses = {"Pending", "Resolved", "Dismissed"}
+    normalized_status = (body.status or "").strip().title()
+    if normalized_status not in allowed_statuses:
+        raise HTTPException(status_code=400, detail="Invalid report status.")
+
+    report = _get_report_or_404(report_id, db)
+    report.status = normalized_status
+    report.last_updated = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(report)
+
+    return _to_admin_report_out(_get_report_or_404(report_id, db))
+
+
 @router.delete("/reviews/{review_id}", status_code=204)
 def delete_review(
     review_id: int,
@@ -276,6 +532,76 @@ def list_coach_applications(
         .all()
     )
     return [_to_admin_coach_out(coach) for coach in coaches]
+
+
+@router.get("/coaches/{coach_id}/profile", response_model=AdminCoachProfileOut)
+def get_coach_profile(
+    coach_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    coach = (
+        db.query(Coach)
+        .options(
+            joinedload(Coach.user),
+            joinedload(Coach.status),
+        )
+        .filter(Coach.coach_id == coach_id)
+        .first()
+    )
+    if not coach or not coach.user:
+        raise HTTPException(status_code=404, detail="Coach not found")
+
+    certifications = (
+        db.query(CoachCertification.certification_name)
+        .filter(CoachCertification.coach_id == coach.coach_id)
+        .order_by(CoachCertification.certification_name.asc())
+        .all()
+    )
+    availability_rows = (
+        db.query(CoachAvailability)
+        .filter(CoachAvailability.coach_id == coach.coach_id)
+        .order_by(CoachAvailability.day_of_week.asc(), CoachAvailability.start_time.asc())
+        .all()
+    )
+    active_client_count = (
+        db.query(ClientCoach)
+        .filter(ClientCoach.coach_id == coach.coach_id, ClientCoach.status_name == "Active")
+        .count()
+    )
+    pending_client_count = (
+        db.query(ClientCoach)
+        .filter(ClientCoach.coach_id == coach.coach_id, ClientCoach.status_name == "Pending")
+        .count()
+    )
+
+    availability = [
+        f"{slot.day_of_week} {slot.start_time.strftime('%I:%M %p')} - {slot.end_time.strftime('%I:%M %p')}"
+        for slot in availability_rows
+    ]
+
+    return AdminCoachProfileOut(
+        coach_id=coach.coach_id,
+        user_id=coach.user_id,
+        first_name=coach.user.first_name,
+        last_name=coach.user.last_name,
+        email=coach.user.email,
+        profile_picture=coach.user.profile_picture,
+        specialization=_specialization_label(coach),
+        status=coach.status.status_name if coach.status else "Unknown",
+        is_active_user=coach.user.is_active,
+        accepting_clients=coach.accepting_clients,
+        hourly_rate=float(coach.hourly_rate or 0),
+        gender=coach.gender,
+        bio=coach.bio,
+        years_of_experience=coach.years_of_experience,
+        max_clients=coach.max_clients,
+        active_client_count=active_client_count,
+        pending_client_count=pending_client_count,
+        certifications=[row.certification_name for row in certifications],
+        availability=availability,
+        submitted_at=coach.created_at,
+    )
 
 
 @router.get("/overview", response_model=AdminOverviewOut)

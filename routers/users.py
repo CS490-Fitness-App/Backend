@@ -2,14 +2,18 @@
 
 import cloudinary
 import cloudinary.uploader
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from core.database import get_db
 from core.config import settings
-from dependencies.rbac import get_current_user
+from dependencies.rbac import (
+	get_current_user,
+	get_current_user_allow_inactive,
+	SELF_DEACTIVATION_RETENTION_DAYS,
+)
 from models.coach import ClientCoach
 from models.log import Goal
 from models.user import Admin, Client, Coach, User
@@ -89,6 +93,9 @@ def _build_profile_response(db: Session, current_user: User) -> UserProfileOut:
 		profile_picture=normalized_profile_picture,
 		role=current_user.role,
 		is_active=current_user.is_active,
+		deactivated_at=current_user.deactivated_at,
+		scheduled_deletion_at=current_user.scheduled_deletion_at,
+		deactivated_by_admin=current_user.deactivated_by_admin,
 		created_at=current_user.created_at,
 		last_updated=current_user.last_updated,
 		client_profile=client_profile,
@@ -254,8 +261,12 @@ def deactivate_my_account(
 	db: Session = Depends(get_db),
 	current_user: User = Depends(get_current_user),
 ):
+	now = datetime.now(timezone.utc)
 	current_user.is_active = False
-	current_user.last_updated = datetime.now(timezone.utc)
+	current_user.deactivated_at = now
+	current_user.scheduled_deletion_at = now + timedelta(days=SELF_DEACTIVATION_RETENTION_DAYS)
+	current_user.deactivated_by_admin = False
+	current_user.last_updated = now
 
 	if current_user.client:
 		client_id = current_user.client.client_id
@@ -285,9 +296,17 @@ def deactivate_my_account(
 @router.post("/me/reactivate", response_model=UserProfileOut)
 def reactivate_my_account(
 	db: Session = Depends(get_db),
-	current_user: User = Depends(get_current_user),
+	current_user: User = Depends(get_current_user_allow_inactive),
 ):
+	if current_user.deactivated_by_admin or not current_user.scheduled_deletion_at:
+		raise HTTPException(
+			status_code=status.HTTP_403_FORBIDDEN,
+			detail="This account was deactivated by an administrator and can only be reactivated by an administrator.",
+		)
 	current_user.is_active = True
+	current_user.deactivated_at = None
+	current_user.scheduled_deletion_at = None
+	current_user.deactivated_by_admin = False
 	current_user.last_updated = datetime.now(timezone.utc)
 	db.commit()
 	db.refresh(current_user)
