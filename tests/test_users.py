@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 
 from core.database import get_db
-from dependencies.rbac import get_current_user
+from dependencies.rbac import get_current_user, get_current_user_allow_inactive
 from main import app
 from models.user import User, Client, Coach, CoachStatus
 
@@ -25,6 +25,7 @@ def profile_client(db, profile_user):
         yield db
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_current_user_allow_inactive] = lambda: mock_user
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
