@@ -440,7 +440,7 @@ def schedule_workout(workout_id: int, data: ScheduledWorkoutIn, db: Session = De
             raise HTTPException(status_code=403, detail="No active coaching relationship with this client")
         target_user_id = data.client_user_id
     else:
-        _require_workout_access(w, current_user)
+        pass  # any authenticated user may schedule any workout for themselves
 
     existing = db.query(ScheduledWorkout).filter_by(user_id=target_user_id, workout_id=workout_id, scheduled_date=data.scheduled_date).first()
     if existing:
