@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, contains_eager, joinedload
 
 from core.database import get_db
 from core.account_lifecycle import delete_user_account
@@ -237,7 +237,8 @@ def list_clients(
 ):
     clients = (
         db.query(Client)
-        .options(joinedload(Client.user))
+        .join(Client.user)
+        .options(contains_eager(Client.user))
         .order_by(Client.created_at.desc())
         .all()
     )

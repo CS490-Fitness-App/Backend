@@ -539,10 +539,15 @@ def get_activity_day(
     progress_photos = _progress_photos_for_date(db, target_user_id, date)
     has_logged_data = bool(survey or logged_workouts or day_weight_log or progress_photos)
 
+    is_coach_viewing_client = (
+        current_user.role == "coach"
+        and client_user_id is not None
+        and client_user_id != current_user.user_id
+    )
     return ActivityDayOut(
         date=date,
-        is_today=current_user.role != "coach" and date == _current_utc_date(),
-        can_delete=current_user.role != "coach" and date == _current_utc_date() and has_logged_data,
+        is_today=not is_coach_viewing_client and date == _current_utc_date(),
+        can_delete=not is_coach_viewing_client and date == _current_utc_date() and has_logged_data,
         has_logged_data=has_logged_data,
         mood_options=_mood_options(db),
         goals=_goal_tags_for_user(db, target_user_id),
