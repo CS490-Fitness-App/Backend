@@ -95,6 +95,20 @@ jobs:
       - name: Zip deployment package
         run: zip -r deploy.zip . -x "*.git*" -x "antenv/*"
 
+      - name: Cancel any in-progress deployment
+        run: |
+          RG=$(az webapp list --query "[?name=='primal-fitness-app'].resourceGroup" -o tsv)
+          CREDS=$(az webapp deployment list-publishing-credentials \
+            --name primal-fitness-app \
+            --resource-group "$RG" \
+            --query "{u:publishingUserName,p:publishingPassword}" -o json)
+          USER=$(echo "$CREDS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['u'])")
+          PASS=$(echo "$CREDS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['p'])")
+          curl -s -X DELETE \
+            "https://primal-fitness-app-atgudzh2eed2a8gj.scm.centralus-01.azurewebsites.net/api/deployments/latest" \
+            -u "$USER:$PASS" || true
+          sleep 10
+
       - name: Deploy to Azure Web App
         run: |
           RG=$(az webapp list --query "[?name=='primal-fitness-app'].resourceGroup" -o tsv)
