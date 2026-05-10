@@ -50,10 +50,12 @@ class CaloriesLogIn(BaseModel):
 class DailyCheckInIn(BaseModel):
     date: date
     calories_intake: Optional[int] = None
+    calories_burned: Optional[int] = None
     step_count: Optional[int] = None
     water_intake: Optional[int] = None
     weight_lb: Optional[float] = None
     mood_label: Optional[Literal["Amazing", "Good", "Okay", "Bad", "Awful"]] = None
+    notes: Optional[str] = None
 
 
 LogIn = Annotated[

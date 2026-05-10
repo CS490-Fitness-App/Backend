@@ -730,12 +730,16 @@ def create_daily_checkin(
 
     if data.calories_intake is not None:
         survey.calories_intake = data.calories_intake
+    if data.calories_burned is not None:
+        survey.calories_burned = data.calories_burned
     if data.step_count is not None:
         survey.step_count = data.step_count
     if data.water_intake is not None:
         survey.water_intake = data.water_intake
     if data.mood_label is not None:
         survey.mood_type_id = _resolve_mood_type_id(db, data.mood_label)
+    if data.notes is not None:
+        survey.notes = data.notes.strip() or None
 
     weight_logged_lb = None
     if data.weight_lb is not None:
