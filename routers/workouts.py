@@ -236,6 +236,24 @@ def list_scheduled_workouts(
         query = query.filter(ScheduledWorkout.scheduled_date <= end_date)
     rows = query.order_by(ScheduledWorkout.scheduled_date).all()
 
+    today = date.today()
+    client_id = current_user.client.client_id if hasattr(current_user, 'client') and current_user.client else None
+    dirty = False
+
+    for row in rows:
+        if row.status == 'Scheduled' and row.scheduled_date < today:
+            logged = False
+            if client_id:
+                logged = db.query(WorkoutLog).filter(
+                    WorkoutLog.workout_id == row.workout_id,
+                    WorkoutLog.client_id == client_id,
+                ).first() is not None
+            row.status = 'Logged' if logged else 'Missed'
+            dirty = True
+
+    if dirty:
+        db.commit()
+
     result = []
     for row in rows:
         w = db.query(Workout).options(joinedload(Workout.experience_level), joinedload(Workout.goal_type)).filter(Workout.workout_id == row.workout_id).first()
