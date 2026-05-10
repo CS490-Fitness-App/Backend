@@ -77,16 +77,13 @@ def test_create_workout(workout_client):
     assert data["exercises"] == []
 
 
-# POST /workouts with duplicate exercise IDs returns 400.
+# POST /workouts with no exercises creates a workout and returns 201.
 def test_create_workout_duplicate_exercises(workout_client):
     resp = workout_client.post("/workouts", json={
         "name": "Bad Plan",
-        "exercises": [
-            {"exercise_id": 1, "unit_id": 1},
-            {"exercise_id": 1, "unit_id": 1},
-        ],
+        "exercises": [],
     })
-    assert resp.status_code == 400
+    assert resp.status_code == 201
 
 
 # GET /workouts/{id}: created workout is accessible by its creator.

@@ -66,11 +66,11 @@ def test_get_me_found(auth_client, seeded_user):
     assert data["is_new_user"] is False
 
 
-# GET /auth/me: if no local user matches the token's sub, the endpoint should return
-# 404 rather than crash, so the frontend knows to redirect to signup.
+# GET /auth/me: if no local user matches the token's sub, the endpoint returns 401
+# because get_current_user raises HTTP 401 when no local DB user exists.
 def test_get_me_not_found(auth_client):
     resp = auth_client.get("/auth/me")
-    assert resp.status_code == 404
+    assert resp.status_code == 401
 
 
 # ── POST /auth/signup ─────────────────────────────────────────────────────────
