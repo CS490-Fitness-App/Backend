@@ -244,7 +244,7 @@ def send_message(
 
     sender_name = _full_name(current_user)
     preview = data.body[:80] + ('…' if len(data.body) > 80 else '')
-    notify(db, user_id=receiver_id, message=f"New message from {sender_name}: {preview}")
+    notify(db, user_id=receiver_id, message=f"New message from {sender_name}: {preview} [chat:{chat_id}]")
 
     # reload with sender relationship for the response
     msg = (
