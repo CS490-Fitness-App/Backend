@@ -84,7 +84,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: python-app
-      
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -92,11 +92,15 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_DB2EF1E4BABA4DBE93BAE996DCAF9BC6 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E1B1ED7B120646B9B06DFD5E7D6DE221 }}
 
-      - name: 'Deploy to Azure Web App'
-        uses: azure/webapps-deploy@v3
-        id: deploy-to-webapp
-        with:
-          app-name: 'primal-fitness-app'
-          slot-name: 'Production'
-          package: '.'
+      - name: Zip deployment package
+        run: zip -r deploy.zip . -x "*.git*" -x "antenv/*"
+
+      - name: Deploy to Azure Web App
+        run: |
+          RG=$(az webapp list --query "[?name=='primal-fitness-app'].resourceGroup" -o tsv)
+          az webapp deploy \
+            --name primal-fitness-app \
+            --resource-group "$RG" \
+            --src-path deploy.zip \
+            --type zip
           
