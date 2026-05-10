@@ -117,6 +117,10 @@ jobs:
       - name: Deploy to Azure Web App
         run: |
           RG=$(az webapp list --query "[?name=='primal-fitness-app'].resourceGroup" -o tsv)
+          az webapp config set \
+            --name primal-fitness-app \
+            --resource-group "$RG" \
+            --startup-file "gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --chdir /home/site/wwwroot main:app"
           az webapp deploy \
             --name primal-fitness-app \
             --resource-group "$RG" \
