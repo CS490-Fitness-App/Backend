@@ -14,8 +14,9 @@ from core.config import settings
 from core.database import get_db
 from dependencies.rbac import require_client
 from models.coach import ClientCoach
+from routers.notifications import notify
 from models.log import DailySurvey, Goal, Goal, MoodType, ProgressPhoto, UserDailyEngagement, WeightLog
-from models.user import Client
+from models.user import Client, Coach
 from models.workout import ScheduledWorkout, Workout, WorkoutLog, WorkoutPlan, SetResult
 from schemas.log import (
     ActivityDayOut,
@@ -750,6 +751,30 @@ def create_daily_checkin(
 
     db.commit()
     db.refresh(survey)
+
+    # Notify the client's active coach
+    client_record = db.query(Client).filter(Client.user_id == current_user.user_id).first()
+    if client_record:
+        cc = (
+            db.query(ClientCoach)
+            .filter(
+                ClientCoach.client_id == client_record.client_id,
+                ClientCoach.status_name == "Active",
+            )
+            .first()
+        )
+        if cc:
+            coach = db.query(Coach).filter(Coach.coach_id == cc.coach_id).first()
+            if coach:
+                name = f"{current_user.first_name} {current_user.last_name}".strip() or current_user.email
+                parts = [f"{name} submitted their daily log"]
+                if survey.calories_burned is not None:
+                    parts.append(f"{survey.calories_burned} cal burned")
+                if survey.calories_intake is not None:
+                    parts.append(f"{survey.calories_intake} cal intake")
+                if survey.step_count is not None:
+                    parts.append(f"{survey.step_count} steps")
+                notify(db, user_id=coach.user_id, message=" — ".join(parts) + ".")
 
     return {
         "daily_survey": DailySurveyOut.model_validate(survey),
