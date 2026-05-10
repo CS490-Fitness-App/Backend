@@ -15,6 +15,7 @@ from dependencies.rbac import get_current_user
 from models.chat import Chat
 from models.user import Client, Coach, User
 from models.coach import ClientCoach
+from routers.notifications import notify
 from schemas.chat import ChatCreateIn, ConversationOut, MessageIn, MessageOut
 
 router = APIRouter(prefix="/chats", tags=["chat"], redirect_slashes=False)
@@ -240,6 +241,10 @@ def send_message(
     db.add(msg)
     db.commit()
     db.refresh(msg)
+
+    sender_name = _full_name(current_user)
+    preview = data.body[:80] + ('…' if len(data.body) > 80 else '')
+    notify(db, user_id=receiver_id, message=f"New message from {sender_name}: {preview}")
 
     # reload with sender relationship for the response
     msg = (
