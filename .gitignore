@@ -5,3 +5,4 @@ __pycache__/
 primal_fitness.sql
 Database/*.sql
 Database/migrations.sql
+scripts/transfer_user_data.py
