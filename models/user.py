@@ -43,9 +43,9 @@ class User(Base):
     last_active_at                = Column(DateTime(timezone=True))
     last_updated                  = Column(DateTime(timezone=True), nullable=False, default=_now)
 
-    client = relationship('Client', back_populates='user', uselist=False)
-    coach  = relationship('Coach',  back_populates='user', uselist=False)
-    admin  = relationship('Admin',  back_populates='user', uselist=False)
+    client = relationship('Client', back_populates='user', uselist=False, passive_deletes=True)
+    coach  = relationship('Coach',  back_populates='user', uselist=False, passive_deletes=True)
+    admin  = relationship('Admin',  back_populates='user', uselist=False, passive_deletes=True)
 
 
 class Client(Base):

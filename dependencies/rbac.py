@@ -31,7 +31,7 @@ def build_inactive_account_detail(user: User) -> dict:
     remaining_days = None
     if user.scheduled_deletion_at:
         delta = user.scheduled_deletion_at - datetime.now(timezone.utc)
-        remaining_days = max(0, delta.days + (1 if delta.seconds > 0 else 0))
+        remaining_days = max(0, delta.days)
 
     deletion_date = user.scheduled_deletion_at.isoformat() if user.scheduled_deletion_at else None
     message = (

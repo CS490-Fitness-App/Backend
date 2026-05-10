@@ -91,13 +91,16 @@ def register_coach(
         coach.years_of_experience = data.years_of_experience
         coach.max_clients = data.max_clients
     else:
+        pending_status = db.query(CoachStatus).filter(CoachStatus.status_name == 'Pending').first()
+        if not pending_status:
+            raise HTTPException(status_code=500, detail="Coach status configuration error.")
         coach = Coach(
             user_id=current_user.user_id,
             gender=data.gender,
             hourly_rate=data.hourly_rate,
             accepting_clients=data.accepting_clients,
             bio=data.bio,
-            status_id=1,
+            status_id=pending_status.status_id,
             is_trainer=data.is_trainer,
             is_nutritionist=data.is_nutritionist,
             years_of_experience=data.years_of_experience,
